@@ -1,0 +1,21 @@
+{
+  "name": "plex-toolkit",
+  "version": "1.0.0",
+  "description": "Lightweight plugin host for Plex Media Server",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test test/**/*.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}
