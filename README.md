@@ -11,9 +11,10 @@ Self-hosted tools for your Plex Media Server. Run one Docker container, connect 
 ## Quick start
 
 ```bash
+git clone https://github.com/timlaws1/plex-toolkit.git
+cd plex-toolkit
 cp .env.example .env
 # Set a strong ADMIN_PASSWORD in .env
-
 docker compose up -d --build
 ```
 
