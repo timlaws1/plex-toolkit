@@ -97,6 +97,21 @@ docker rm plex-toolkit
 
 On every start the new image recopies its tools into `./data/plugins` and keeps each tool's saved settings.
 
+### Update from the app
+
+Home shows the running version. When a newer build is on `main`, **Update** pulls that image and restarts the container.
+
+That needs the Docker socket. Add this to the compose service, set `DOCKER_GID` to the group that owns `/var/run/docker.sock`, then recreate the container once:
+
+```yaml
+group_add:
+  - "${DOCKER_GID}"
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock
+```
+
+The socket lets this app control Docker on the host. Leave it out if you would rather update with the commands above.
+
 ## Connect Plex
 
 1. Open **Plex** in the admin UI.

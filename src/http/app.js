@@ -17,6 +17,8 @@ import {
   pickReachableUri,
   fetchPlexAccount,
 } from '../plex/auth.js';
+import { startUpdate } from '../update/apply.js';
+import { getUpdateStatus, readUpdateResult, refreshUpdateStatus } from '../update/status.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
@@ -130,9 +132,20 @@ export function createApp(ctx) {
         body,
         flash: takeFlash(req, res),
         user: req.user,
+        version: req.user ? getUpdateStatus() : null,
       }),
     );
   }
+
+  const versionTimer = setInterval(() => {
+    refreshUpdateStatus().catch((err) => {
+      logger.warn(`Update check failed: ${err.message}`);
+    });
+  }, 15 * 60 * 1000);
+  versionTimer.unref?.();
+  refreshUpdateStatus().catch((err) => {
+    logger.warn(`Update check failed: ${err.message}`);
+  });
 
   function getPlexServerRow() {
     return db.prepare('SELECT * FROM plex_servers ORDER BY id ASC LIMIT 1').get();
@@ -193,7 +206,11 @@ export function createApp(ctx) {
     res.redirect('/login');
   });
 
-  app.get('/', requireAuth, (req, res) => {
+  app.get('/', requireAuth, async (req, res) => {
+    await refreshUpdateStatus().catch((err) => {
+      logger.warn(`Update check failed: ${err.message}`);
+    });
+    const version = getUpdateStatus();
     const server = getPlexServerRow();
     const plugins = pluginManager.listInstalled();
     const activity = db
@@ -258,6 +275,12 @@ export function createApp(ctx) {
             <div class="hint">${plugins.filter((p) => p.enabled).length} enabled</div>
           </div>
           <div class="stat-card">
+            <div class="label">Version</div>
+            <div class="value" style="font-size:1.15rem;margin-top:0.5rem">${escapeHtml(version.version)}</div>
+            <div class="hint">${escapeHtml(version.revisionShort)} · ${escapeHtml(version.stateLabel)}</div>
+            ${version.updateAvailable ? '<div class="hint"><a href="/update">Update</a></div>' : ''}
+          </div>
+          <div class="stat-card">
             <div class="label">Status</div>
             <div class="value" style="font-size:1.15rem;margin-top:0.5rem">${server?.last_ok_at ? 'Ready' : server ? 'Needs check' : 'Setup'}</div>
             <div class="hint"><a href="/plex">Manage Plex</a></div>
@@ -282,6 +305,81 @@ export function createApp(ctx) {
             <p class="mono">${escapeHtml(publicUrl ? webhookUrl : 'Set PUBLIC_URL, then /webhooks/plex')}</p>
           </div>
         </details>
+      `,
+    });
+  });
+
+  app.get('/update', requireAuth, async (req, res) => {
+    const version = await refreshUpdateStatus(fetch, { force: true }).catch(() => getUpdateStatus());
+    const result = readUpdateResult();
+    const latestLine = version.updateAvailable
+      ? `Newest build ${escapeHtml(version.latestShort)}${version.latestDate ? ` · ${escapeHtml(version.latestDate)}` : ''}.`
+      : escapeHtml(version.stateLabel);
+    const note = version.latestMessage
+      ? `<p class="muted" style="margin-top:0.75rem">${escapeHtml(version.latestMessage)}</p>`
+      : '';
+    const outcome = result?.message
+      ? `<p class="muted" style="margin-top:0.75rem">${escapeHtml(result.message)}</p>`
+      : '';
+    const action = version.updateAvailable && version.canApply
+      ? `<form method="post" action="/update" style="margin-top:1rem">
+          <button class="primary" type="submit">Update now</button>
+        </form>`
+      : version.updateAvailable
+        ? `<div class="panel" style="margin-top:1rem">
+            <h2 class="panel-title">One-click update</h2>
+            <p class="panel-hint">Add the Docker socket so this screen can replace the container. Then recreate Plex Toolkit once.</p>
+            <pre class="mono">group_add:
+  - "\${DOCKER_GID}"
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock</pre>
+            <p class="muted" style="margin-top:0.75rem">On the host, <span class="mono">DOCKER_GID</span> is the group that owns <span class="mono">/var/run/docker.sock</span>.</p>
+            <p class="muted" style="margin-top:0.75rem">Or update from the host:</p>
+            <pre class="mono">docker compose pull
+docker compose up -d</pre>
+          </div>`
+        : '';
+
+    render(req, res, {
+      title: 'Update',
+      nav: 'dashboard',
+      body: `
+        ${pageHeader('Update', `Running ${version.version} (${version.revisionShort}).`)}
+        <div class="panel">
+          <p>${latestLine}</p>
+          ${note}
+          ${outcome}
+          ${action}
+        </div>
+      `,
+    });
+  });
+
+  app.post('/update', requireAuth, async (req, res) => {
+    const version = await refreshUpdateStatus().catch(() => getUpdateStatus());
+    if (!version.updateAvailable) {
+      flash(res, 'ok', 'Already on the newest build.');
+      return res.redirect('/');
+    }
+    if (!version.canApply) {
+      flash(res, 'error', 'The Docker socket is not available to this app.');
+      return res.redirect('/update');
+    }
+
+    res.on('finish', () => {
+      startUpdate().catch((err) => {
+        logger.error(`Update failed to start: ${err.message}`);
+      });
+    });
+
+    render(req, res, {
+      title: 'Updating',
+      nav: 'dashboard',
+      body: `
+        ${pageHeader('Updating', 'Pulling the newest image and restarting.')}
+        <div class="panel">
+          <p>This page will disconnect for a moment. Refresh Home when it comes back.</p>
+        </div>
       `,
     });
   });

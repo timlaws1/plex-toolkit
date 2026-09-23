@@ -211,6 +211,27 @@
     @apply mt-auto border-t border-line p-3;
   }
 
+  .shell-version {
+    @apply mb-3 px-1 text-xs text-mute;
+  }
+
+  .shell-version-name {
+    @apply font-medium text-ink;
+  }
+
+  .shell-version-rev,
+  .shell-version-state {
+    @apply mt-0.5;
+  }
+
+  .shell-version-link {
+    @apply mt-1 inline-block text-accent no-underline;
+  }
+
+  .shell-version-link:hover {
+    @apply underline;
+  }
+
   .shell-mobile {
     @apply flex items-center justify-between gap-3 border-b border-line bg-canvas-lift/90 px-4 py-3 md:hidden;
   }
@@ -264,7 +285,7 @@
   }
 
   .stat-grid {
-    @apply grid gap-3 sm:grid-cols-3;
+    @apply grid gap-3 sm:grid-cols-2 xl:grid-cols-4;
   }
 
   .stat-card {

@@ -16,9 +16,13 @@ COPY tools ./tools
 RUN npm run css \
   && npm prune --omit=dev
 
+ARG APP_REVISION=dev
+ARG APP_VERSION=1.0.0
 ENV NODE_ENV=production
 ENV PORT=8787
 ENV DATA_DIR=/data
+ENV APP_REVISION=$APP_REVISION
+ENV APP_VERSION=$APP_VERSION
 
 RUN mkdir -p /data/config /data/database /data/plugins /data/logs \
   && chown -R node:node /data /app

@@ -1,4 +1,16 @@
-export function layout({ title, body, flash, user, nav }) {
+function versionBlock(version) {
+  if (!version) return '';
+  const action = version.updateAvailable
+    ? `<a class="shell-version-link" href="/update">Update to ${escapeHtml(version.latestShort)}</a>`
+    : `<div class="shell-version-state">${escapeHtml(version.stateLabel || '')}</div>`;
+  return `<div class="shell-version">
+      <div class="shell-version-name">Version ${escapeHtml(version.version)}</div>
+      <div class="shell-version-rev">${escapeHtml(version.revisionShort || '')}</div>
+      ${action}
+    </div>`;
+}
+
+export function layout({ title, body, flash, user, nav, version }) {
   const flashHtml = flash
     ? `<div class="flash flash-${escapeHtml(flash.type)}">${escapeHtml(flash.message)}</div>`
     : '';
@@ -27,13 +39,17 @@ export function layout({ title, body, flash, user, nav }) {
         </div>
         <nav class="shell-nav">${navLinks}</nav>
         <div class="shell-footer">
+          ${versionBlock(version)}
           <form method="post" action="/logout">
             <button type="submit" class="ghost" style="width:100%">Log out</button>
           </form>
         </div>
       </aside>
       <header class="shell-mobile">
-        <div class="shell-brand-title">Plex Toolkit</div>
+        <div>
+          <div class="shell-brand-title">Plex Toolkit</div>
+          ${version ? `<a class="shell-version-link" href="/update">v${escapeHtml(version.version)}${version.updateAvailable ? ' · Update' : ''}</a>` : ''}
+        </div>
         <nav class="shell-mobile-nav">${navLinks}</nav>
       </header>`
     : '';
