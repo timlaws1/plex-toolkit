@@ -318,3 +318,147 @@ export function derivePreferredRegion(channelTitles = []) {
 function escapeRe(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+/** Channels often on UK Freeview EPG that are outside typical England/Wales/Scotland viewing. */
+export const DEFAULT_EXCLUDED_CHANNELS = [
+  'France 24',
+  'RTE One',
+  'RTE2',
+  'RTÉ One',
+  'RTÉ2',
+  'TG4',
+];
+
+/**
+ * Normalize an exclude list from settings (or fall back to defaults when unset).
+ * An explicit empty array means "exclude nothing".
+ */
+export function resolveExcludedChannels(raw) {
+  if (raw === undefined || raw === null) {
+    return DEFAULT_EXCLUDED_CHANNELS.slice();
+  }
+  if (!Array.isArray(raw)) {
+    return DEFAULT_EXCLUDED_CHANNELS.slice();
+  }
+  return raw.map((s) => String(s || '').trim()).filter(Boolean);
+}
+
+function channelExcludeKey(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/rté/g, 'rte')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+/**
+ * True when the channel name or family matches an exclude entry.
+ */
+export function isChannelExcluded(channelName, excluded = []) {
+  if (!excluded?.length) return false;
+  const classified = classifyChannel(channelName);
+  const nameKey = channelExcludeKey(channelName);
+  const familyKey = channelExcludeKey(classified.family);
+  for (const entry of excluded) {
+    const key = channelExcludeKey(entry);
+    if (!key) continue;
+    if (nameKey === key || familyKey === key) return true;
+    if (nameKey.includes(key) || key.includes(nameKey)) return true;
+    if (familyKey.includes(key) || key.includes(familyKey)) return true;
+  }
+  return false;
+}
+
+/**
+ * Build a lookup of DVR channel families / names for location filtering.
+ */
+export function buildDvrChannelIndex(channelTitles = []) {
+  const families = new Set();
+  const names = new Set();
+  for (const raw of channelTitles) {
+    const title = String(raw || '').trim();
+    if (!title) continue;
+    names.add(channelExcludeKey(title));
+    const classified = classifyChannel(title);
+    families.add(channelExcludeKey(classified.family));
+  }
+  return { families, names };
+}
+
+/**
+ * True when an EPG channel is present on the user's DVR lineup.
+ */
+export function channelOnDvr(channelName, dvrIndex) {
+  if (!dvrIndex?.families?.size && !dvrIndex?.names?.size) return true;
+  const classified = classifyChannel(channelName);
+  const nameKey = channelExcludeKey(channelName);
+  const familyKey = channelExcludeKey(classified.family);
+  if (dvrIndex.names.has(nameKey) || dvrIndex.families.has(familyKey)) {
+    return true;
+  }
+  for (const n of dvrIndex.names) {
+    if (n.includes(nameKey) || nameKey.includes(n)) return true;
+  }
+  for (const f of dvrIndex.families) {
+    if (f === familyKey) return true;
+  }
+  return false;
+}
+
+/**
+ * Drop airings outside the user's location filters.
+ * - excludedChannels: never match (France 24, RTE, …)
+ * - restrictToDvr + dvrTitles: only channels on the Plex DVR lineup
+ */
+export function filterAiringsByLocation(
+  airings,
+  {
+    excludedChannels = DEFAULT_EXCLUDED_CHANNELS,
+    restrictToDvr = false,
+    dvrChannelTitles = [],
+  } = {},
+) {
+  const excluded = resolveExcludedChannels(excludedChannels);
+  const dvrIndex =
+    restrictToDvr && dvrChannelTitles.length > 0
+      ? buildDvrChannelIndex(dvrChannelTitles)
+      : null;
+
+  return (airings || []).filter((airing) => {
+    const variants = airing.channels?.length
+      ? airing.channels
+      : [
+          {
+            name: airing.channel || airing.channelFamily || '',
+            region: airing.region,
+            family: airing.channelFamily,
+            isHd: airing.isHd,
+            isPlus1: airing.isPlus1,
+            isRegional: airing.isRegional,
+          },
+        ];
+
+    const kept = variants.filter((ch) => {
+      const chName = ch.name || ch.display || '';
+      if (isChannelExcluded(chName, excluded)) return false;
+      if (dvrIndex && !channelOnDvr(chName, dvrIndex)) return false;
+      return true;
+    });
+    if (kept.length === 0) return false;
+
+    airing.channels = kept;
+    const primary = pickPrimaryChannel(kept, {
+      preferredRegion: airing.preferredRegion || null,
+    });
+    if (primary) {
+      airing.channel = primary.name;
+      airing.isHd = primary.isHd || false;
+      airing.isPlus1 = primary.isPlus1 || false;
+      airing.isRegional = primary.isRegional || false;
+      airing.region = primary.region || null;
+      airing.channelFamily = primary.family || airing.channelFamily;
+    }
+    airing.alsoOn = compactAlsoOn(kept, airing.channel);
+    return true;
+  });
+}

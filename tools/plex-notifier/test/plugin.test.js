@@ -9,7 +9,16 @@ import {
   mediaTypeAllowed,
 } from '../lib/normalize.js';
 import { parseXmltvWindow, parseXmltvTime, collapseAirings } from '../lib/epg.js';
-import { classifyChannel, pickPrimaryChannel, compactAlsoOn, derivePreferredRegion } from '../lib/channels.js';
+import {
+  classifyChannel,
+  pickPrimaryChannel,
+  compactAlsoOn,
+  derivePreferredRegion,
+  filterAiringsByLocation,
+  isChannelExcluded,
+  resolveExcludedChannels,
+  DEFAULT_EXCLUDED_CHANNELS,
+} from '../lib/channels.js';
 import {
   findWatchlistHit,
   findFilmographyHit,
@@ -302,6 +311,48 @@ test('derivePreferredRegion from DVR-like titles', () => {
     'Film4',
   ]);
   assert.ok(/west midlands/i.test(region));
+});
+
+test('resolveExcludedChannels defaults until explicitly cleared', () => {
+  assert.deepEqual(resolveExcludedChannels(undefined), DEFAULT_EXCLUDED_CHANNELS);
+  assert.deepEqual(resolveExcludedChannels([]), []);
+  assert.ok(isChannelExcluded('France 24', DEFAULT_EXCLUDED_CHANNELS));
+  assert.ok(isChannelExcluded('RTE One HD', DEFAULT_EXCLUDED_CHANNELS));
+  assert.equal(isChannelExcluded('BBC One', DEFAULT_EXCLUDED_CHANNELS), false);
+});
+
+test('filterAiringsByLocation drops excluded and off-DVR channels', () => {
+  const airings = [
+    {
+      channel: 'France 24',
+      channelFamily: 'France 24',
+      channels: [{ name: 'France 24' }],
+    },
+    {
+      channel: 'RTE One',
+      channelFamily: 'RTE One',
+      channels: [{ name: 'RTE One' }],
+    },
+    {
+      channel: 'BBC One West Midlands',
+      channelFamily: 'BBC One',
+      channels: [{ name: 'BBC One West Midlands', family: 'BBC One' }],
+    },
+    {
+      channel: 'Sky Arts',
+      channelFamily: 'Sky Arts',
+      channels: [{ name: 'Sky Arts' }],
+    },
+  ];
+
+  const filtered = filterAiringsByLocation(airings, {
+    excludedChannels: DEFAULT_EXCLUDED_CHANNELS,
+    restrictToDvr: true,
+    dvrChannelTitles: ['BBC One West Midlands', 'ITV', 'Film4'],
+  });
+
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0].channelFamily, 'BBC One');
 });
 
 function mockCtx(initial = {}) {

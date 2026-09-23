@@ -1,7 +1,7 @@
 {
   "id": "plex-notifier",
   "name": "Plex Notifier",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "apiVersion": 1,
   "author": "Thunderhat",
   "description": "Rank most-watched actors and directors from your Plex library, search people, track favourites, and email when they (or watchlist titles) appear on Freeview.",
@@ -62,7 +62,23 @@
       "label": "Preferred Freeview region",
       "default": "",
       "section": "What to watch",
-      "help": "e.g. West Midlands. Used to pick the primary channel when collapsing regionals. Leave blank to detect from Plex DVR channels."
+      "help": "e.g. West Midlands. Chooses which BBC One / ITV regional variant to show when the same programme airs nationally. Leave blank to detect from Plex DVR."
+    },
+    {
+      "key": "restrictToDvrChannels",
+      "type": "boolean",
+      "label": "Only channels on my Plex DVR",
+      "default": true,
+      "section": "What to watch",
+      "help": "When Plex DVR is configured, ignore EPG channels that are not on your tuner lineup. This is the main location filter."
+    },
+    {
+      "key": "excludedChannels",
+      "type": "stringList",
+      "label": "Excluded channels",
+      "default": ["France 24", "RTE One", "RTE2", "TG4"],
+      "section": "What to watch",
+      "help": "Never match these channels (one per line). Defaults hide Ireland/international Freeview extras."
     },
     {
       "key": "autoRecord",

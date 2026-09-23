@@ -11,7 +11,11 @@ import {
 } from './history.js';
 import { fetchUpcomingAirings } from './epg.js';
 import { createTmdbClient, getTmdbConfig } from './tmdb.js';
-import { derivePreferredRegion } from './channels.js';
+import {
+  derivePreferredRegion,
+  filterAiringsByLocation,
+  resolveExcludedChannels,
+} from './channels.js';
 
 const TRACKED_KEY = 'trackedPeople';
 const FILMOGRAPHY_CACHE_KEY = 'filmographyCache';
@@ -254,8 +258,18 @@ export async function runMatch(ctx, { preview = false, forceFilmography = false 
     matchTv: settings.matchTv !== false,
   };
   const preferredRegion = await resolvePreferredRegion(ctx, settings);
-  const airings = await fetchUpcomingAirings(settings.epgUrl, windowDays, {
+  const dvrTitles = await loadDvrChannelTitles(ctx);
+  const restrictToDvr =
+    settings.restrictToDvrChannels !== false && dvrTitles.length > 0;
+  const excludedChannels = resolveExcludedChannels(settings.excludedChannels);
+
+  let airings = await fetchUpcomingAirings(settings.epgUrl, windowDays, {
     preferredRegion,
+  });
+  airings = filterAiringsByLocation(airings, {
+    excludedChannels,
+    restrictToDvr,
+    dvrChannelTitles: dvrTitles,
   });
 
   const watchlistItems = getWatchlistItems(ctx);
@@ -426,6 +440,19 @@ async function resolvePreferredRegion(ctx, settings) {
   } catch (err) {
     ctx.log?.warn?.(`Could not derive preferred region from DVR: ${err.message}`);
     return null;
+  }
+}
+
+async function loadDvrChannelTitles(ctx) {
+  if (!ctx.plex?.getDvrChannels) return [];
+  try {
+    const channels = await ctx.plex.getDvrChannels();
+    return (channels || [])
+      .map((c) => String(c.title || c.name || '').trim())
+      .filter(Boolean);
+  } catch (err) {
+    ctx.log?.warn?.(`Could not load DVR channels for EPG filter: ${err.message}`);
+    return [];
   }
 }
 
