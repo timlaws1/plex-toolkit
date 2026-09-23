@@ -8,19 +8,96 @@ Self-hosted tools for your Plex Media Server. Run one Docker container, connect 
 - **Plex Notifier** — track watchlist and favourite people and get Freeview/Live TV alerts
 - **Letterboxd Watchlist Sync** — copy a public Letterboxd watchlist into your Plex watchlist
 
-## Quick start
+## Install
+
+Use the published image.
 
 ```bash
-git clone https://github.com/timlaws1/plex-toolkit.git
-cd plex-toolkit
-cp .env.example .env
-# Set a strong ADMIN_PASSWORD in .env
-docker compose up -d --build
+mkdir plex-toolkit && cd plex-toolkit
+```
+
+Create `.env`:
+
+```bash
+ADMIN_PASSWORD=choose-a-long-unique-password
+# Optional. Shown in the UI for the Plex webhook URL.
+# PUBLIC_URL=http://192.168.1.20:8787
+```
+
+Create `docker-compose.yml`:
+
+```yaml
+services:
+  plex-toolkit:
+    image: ghcr.io/timlaws1/plex-toolkit:latest
+    container_name: plex-toolkit
+    ports:
+      - "8787:8787"
+    environment:
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      TZ: Europe/London
+      DATA_DIR: /data
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8787}
+    volumes:
+      - ./data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+```
+
+Start it:
+
+```bash
+docker compose up -d
+```
+
+The same thing as a single command:
+
+```bash
+docker run -d \
+  --name plex-toolkit \
+  -p 8787:8787 \
+  -e ADMIN_PASSWORD=choose-a-long-unique-password \
+  -e TZ=Europe/London \
+  -e DATA_DIR=/data \
+  -e PUBLIC_URL=http://localhost:8787 \
+  -v /path/to/plex-toolkit/data:/data \
+  --add-host host.docker.internal:host-gateway \
+  --restart unless-stopped \
+  ghcr.io/timlaws1/plex-toolkit:latest
 ```
 
 Open [http://localhost:8787](http://localhost:8787) and sign in with `ADMIN_PASSWORD`.
 
-### Connect Plex
+If `docker compose pull` or `docker run` asks you to log in, the GitHub package is still private. Either make `plex-toolkit` public under your GitHub Packages settings, or log in once:
+
+```bash
+docker login ghcr.io -u YOUR_GITHUB_USERNAME
+```
+
+Use a GitHub personal access token with `read:packages` as the password.
+
+## Update
+
+Settings, the Plex token, and the database live in `./data`. An update replaces the app and the bundled tools, and leaves that folder alone.
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+With `docker run`, pull the new image and recreate the container with the same `-v` data path and `-e` values:
+
+```bash
+docker pull ghcr.io/timlaws1/plex-toolkit:latest
+docker stop plex-toolkit
+docker rm plex-toolkit
+# then the same docker run command as install
+```
+
+On every start the new image recopies its tools into `./data/plugins` and keeps each tool's saved settings.
+
+## Connect Plex
 
 1. Open **Plex** in the admin UI.
 2. Click **Log in with Plex**.
@@ -30,20 +107,22 @@ Open [http://localhost:8787](http://localhost:8787) and sign in with `ADMIN_PASS
 
 Your Plex access token is encrypted at rest under `./data`.
 
-### Updating
+## Install from source
 
 ```bash
-docker compose pull
-docker compose up -d
-```
-
-Or rebuild from source:
-
-```bash
+git clone https://github.com/timlaws1/plex-toolkit.git
+cd plex-toolkit
+cp .env.example .env
+# Set a strong ADMIN_PASSWORD in .env
 docker compose up -d --build
 ```
 
-On every start the host recopies bundled tools from the image into `./data` and keeps your settings.
+## Update from source
+
+```bash
+git pull
+docker compose up -d --build
+```
 
 ## Security
 
