@@ -189,24 +189,28 @@ async function send(socket, line) {
 }
 
 async function expect(reader, code) {
-  const line = await reader.next();
-  if (!line.startsWith(String(code))) {
-    throw new Error(`SMTP unexpected response: ${line}`);
-  }
-  return line;
+  // SMTP multiline replies use "250-…" continuation lines and end with "250 …"
+  return collectMultiline(reader, code);
 }
 
-async function collectMultiline(reader, code) {
+/** @param {{ next: () => Promise<string> }} reader */
+export async function collectMultiline(reader, code) {
+  const prefix = String(code);
   const lines = [];
   for (;;) {
     const line = await reader.next();
     lines.push(line);
-    if (line.startsWith(`${code} `) || (line.startsWith(String(code)) && line[3] === ' ')) {
+    if (line.startsWith(`${prefix} `)) {
       break;
     }
-    if (!line.startsWith(`${code}-`)) {
-      throw new Error(`SMTP unexpected response: ${line}`);
+    if (line.startsWith(`${prefix}-`)) {
+      continue;
     }
+    // Some servers send a bare code with no trailing space on the final line
+    if (line === prefix) {
+      break;
+    }
+    throw new Error(`SMTP unexpected response: ${line}`);
   }
   return lines.join('\n');
 }
