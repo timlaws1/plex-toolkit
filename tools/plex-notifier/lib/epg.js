@@ -3,6 +3,7 @@ import {
   classifyChannel,
   pickPrimaryChannel,
   compactAlsoOn,
+  isRadioChannel,
 } from './channels.js';
 
 const COLLAPSE_WINDOW_MS = 2 * 60 * 1000;
@@ -64,8 +65,10 @@ export function parseXmltvWindow(xml, windowDays = 7, { preferredRegion = null }
     const categories = allTextContent(body, 'category');
     const episodeNum = textContent(body, 'episode-num');
     const channelName = channels.get(channelId) || channelId;
+    if (isRadioChannel(channelName)) continue;
     const classified = classifyChannel(channelName);
     const mediaTypeHint = inferMediaType(categories, episodeNum);
+    if (mediaTypeHint === 'radio') continue;
 
     programmes.push({
       programmeKey: `${channelId}|${startRaw}|${rawTitle}`,
@@ -208,6 +211,7 @@ export function collapseAirings(
 
 export function inferMediaType(categories, episodeNum) {
   const cats = (categories || []).map((c) => String(c).toLowerCase());
+  if (cats.some((c) => /\bradio\b/.test(c))) return 'radio';
   if (cats.some((c) => /\b(movie|film|cinema)\b/.test(c))) return 'movie';
   if (cats.some((c) => /\b(tv|series|drama|comedy|soap|news|sport)\b/.test(c))) {
     return 'tv';

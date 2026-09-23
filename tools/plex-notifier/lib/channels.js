@@ -319,6 +319,22 @@ function escapeRe(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * UK Freeview radio brands (and anything with "radio" in the name).
+ * These share the EPG with TV and must not match movie/TV watchlist titles.
+ */
+const RADIO_NAME_RE =
+  /\b(?:radio|classic\s*fm|talk\s*sport|talksport|lbc|heart(?:\s|$)|capital(?:\s|$)|smooth(?:\s|$)|magic(?:\s|$)|kiss(?:\s|$)|absolute(?:\s|$)|scala|times\s*radio|greatest\s*hits|planet\s*rock|jazz\s*fm|asian\s*network|world\s*service|6\s*music|radio\s*x)\b/i;
+
+/**
+ * True for Freeview radio stations / radio-category listings.
+ */
+export function isRadioChannel(displayName) {
+  const name = String(displayName || '').trim();
+  if (!name) return false;
+  return RADIO_NAME_RE.test(name);
+}
+
 /** Channels often on UK Freeview EPG that are outside typical England/Wales/Scotland viewing. */
 export const DEFAULT_EXCLUDED_CHANNELS = [
   'France 24',
@@ -425,6 +441,10 @@ export function filterAiringsByLocation(
       : null;
 
   return (airings || []).filter((airing) => {
+    const name = airing.channel || airing.channelFamily || '';
+    if (isRadioChannel(name)) return false;
+    if (String(airing.mediaTypeHint || '').toLowerCase() === 'radio') return false;
+
     const variants = airing.channels?.length
       ? airing.channels
       : [
@@ -440,6 +460,7 @@ export function filterAiringsByLocation(
 
     const kept = variants.filter((ch) => {
       const chName = ch.name || ch.display || '';
+      if (isRadioChannel(chName)) return false;
       if (isChannelExcluded(chName, excluded)) return false;
       if (dvrIndex && !channelOnDvr(chName, dvrIndex)) return false;
       return true;

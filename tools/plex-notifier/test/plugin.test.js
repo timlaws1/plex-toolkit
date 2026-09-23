@@ -8,7 +8,6 @@ import {
   titleMatchScore,
   mediaTypeAllowed,
 } from '../lib/normalize.js';
-import { parseXmltvWindow, parseXmltvTime, collapseAirings } from '../lib/epg.js';
 import {
   classifyChannel,
   pickPrimaryChannel,
@@ -16,9 +15,11 @@ import {
   derivePreferredRegion,
   filterAiringsByLocation,
   isChannelExcluded,
+  isRadioChannel,
   resolveExcludedChannels,
   DEFAULT_EXCLUDED_CHANNELS,
 } from '../lib/channels.js';
+import { parseXmltvWindow, parseXmltvTime, collapseAirings, inferMediaType } from '../lib/epg.js';
 import {
   findWatchlistHit,
   findFilmographyHit,
@@ -353,6 +354,49 @@ test('filterAiringsByLocation drops excluded and off-DVR channels', () => {
 
   assert.equal(filtered.length, 1);
   assert.equal(filtered[0].channelFamily, 'BBC One');
+});
+
+test('isRadioChannel detects Freeview radio stations', () => {
+  assert.equal(isRadioChannel('BBC Radio 2'), true);
+  assert.equal(isRadioChannel('Classic FM'), true);
+  assert.equal(isRadioChannel('talkSPORT'), true);
+  assert.equal(isRadioChannel('Heart'), true);
+  assert.equal(isRadioChannel('BBC One'), false);
+  assert.equal(isRadioChannel('Film4'), false);
+  assert.equal(isRadioChannel('Talking Pictures TV'), false);
+});
+
+test('inferMediaType and parseXmltvWindow drop radio programmes', () => {
+  assert.equal(inferMediaType(['Radio']), 'radio');
+  assert.equal(inferMediaType(['Film']), 'movie');
+
+  const futureStart = new Date(Date.now() + 2 * 60 * 60 * 1000);
+  const y = futureStart.getUTCFullYear();
+  const mo = String(futureStart.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(futureStart.getUTCDate()).padStart(2, '0');
+  const h = String(futureStart.getUTCHours()).padStart(2, '0');
+  const mi = String(futureStart.getUTCMinutes()).padStart(2, '0');
+  const s = String(futureStart.getUTCSeconds()).padStart(2, '0');
+  const startAttr = `${y}${mo}${day}${h}${mi}${s} +0000`;
+
+  const xml = `<?xml version="1.0"?>
+    <tv>
+      <channel id="radio2"><display-name>BBC Radio 2</display-name></channel>
+      <channel id="film4"><display-name>Film4</display-name></channel>
+      <programme start="${startAttr}" stop="${startAttr}" channel="radio2">
+        <title>Inception</title>
+        <category>Radio</category>
+      </programme>
+      <programme start="${startAttr}" stop="${startAttr}" channel="film4">
+        <title>Inception</title>
+        <category>Film</category>
+      </programme>
+    </tv>`;
+
+  const programmes = parseXmltvWindow(xml, 7);
+  assert.equal(programmes.length, 1);
+  assert.equal(programmes[0].channelFamily, 'Film4');
+  assert.equal(programmes[0].mediaTypeHint, 'movie');
 });
 
 function mockCtx(initial = {}) {
