@@ -11,6 +11,7 @@ const KNOWN_PERMISSIONS = new Set([
   'scheduler',
   'changes',
   'mail.send',
+  'net.fetch',
 ]);
 
 export function validateManifest(raw, { pluginRoot } = {}) {

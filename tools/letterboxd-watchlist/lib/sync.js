@@ -1,4 +1,3 @@
-import { Impit } from 'impit';
 import {
   isCloudflareChallenge,
   nextWatchlistPage,
@@ -8,15 +7,6 @@ import {
 } from './rss.js';
 
 const MAX_WATCHLIST_PAGES = 50;
-
-let letterboxdClient;
-
-function defaultFetch(url) {
-  if (!letterboxdClient) {
-    letterboxdClient = new Impit({ browser: 'firefox' });
-  }
-  return letterboxdClient.fetch(url);
-}
 
 /**
  * Sync a public Letterboxd watchlist into the Plex account watchlist.
@@ -36,7 +26,10 @@ export async function runSync(ctx, opts = {}) {
     };
   }
 
-  const fetchFn = opts.fetchRss || defaultFetch;
+  const fetchFn = opts.fetchRss || ctx.fetch?.bind(ctx);
+  if (typeof fetchFn !== 'function') {
+    throw new Error('Letterboxd sync cannot fetch the watchlist');
+  }
   const items = await loadWatchlist(username, fetchFn);
   if (items.length === 0) {
     const result = {

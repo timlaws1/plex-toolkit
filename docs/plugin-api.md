@@ -32,7 +32,8 @@ my-tool/
     "storage",
     "scheduler",
     "changes",
-    "mail.send"
+    "mail.send",
+    "net.fetch"
   ],
   "settingsSchema": [
     {
@@ -143,6 +144,10 @@ Key-value store scoped to the tool id:
 ### Scheduler (`scheduler`)
 
 - `ctx.scheduler.every(ms, fn, label)` — minimum interval 60 seconds
+
+### Fetch (`net.fetch`)
+
+- `ctx.fetch(url, init)` — outbound request with a browser TLS fingerprint. Use this for sites that reject Node's built-in fetch.
 
 ### Mail (`mail.send`)
 

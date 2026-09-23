@@ -114,6 +114,27 @@ test('plugin api denies missing permissions', async () => {
   await assert.rejects(() => api.plex.refreshLibrary('3'), /lacks permission/);
   await assert.rejects(() => api.plex.markWatched('1'), /lacks permission/);
   assert.throws(() => api.events.on('playback.started', () => {}), /lacks permission/);
+  assert.throws(() => api.fetch('https://example.com'), /lacks permission/);
+
+  const fetched = [];
+  const apiFetch = createPluginApi({
+    pluginId: 'test-fetch',
+    permissions: ['net.fetch'],
+    plex,
+    bus,
+    db,
+    logger,
+    getConfiguredAccountId: () => '1',
+    panels,
+    scheduler,
+    browserFetch: async (url) => {
+      fetched.push(url);
+      return { ok: true, status: 200, async text() { return 'ok'; } };
+    },
+  });
+  const page = await apiFetch.fetch('https://letterboxd.com/dave/watchlist/');
+  assert.equal(page.ok, true);
+  assert.deepEqual(fetched, ['https://letterboxd.com/dave/watchlist/']);
 
   const apiRefresh = createPluginApi({
     pluginId: 'test-refresh',

@@ -1,4 +1,5 @@
 import { sendMail } from '../mail/smtp.js';
+import { browserFetch as defaultBrowserFetch } from '../net/browser-fetch.js';
 
 const ALLOWED_EVENTS = new Set([
   'playback.started',
@@ -21,6 +22,7 @@ export function createPluginApi({
   scheduler,
   secrets = null,
   settingsSchema = [],
+  browserFetch = defaultBrowserFetch,
 }) {
   const perms = new Set(permissions || []);
   const unsubscribers = [];
@@ -73,6 +75,10 @@ export function createPluginApi({
       get() {
         return loadSettings();
       },
+    },
+    fetch(url, init) {
+      requirePerm('net.fetch');
+      return browserFetch(url, init);
     },
     plex: {
       async getServer() {
