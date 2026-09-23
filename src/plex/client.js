@@ -41,23 +41,36 @@ function mapGenres(raw) {
 }
 
 function extractSearchResults(data) {
-  const hubs = asList(data?.MediaContainer?.Hub);
-  const direct = asList(data?.MediaContainer?.Metadata);
+  const container = data?.MediaContainer || {};
+  const hubs = asList(container.Hub);
+  const direct = asList(container.Metadata);
+  const searchGroups = asList(container.SearchResults);
+  const external = searchGroups.filter((group) => group?.id === 'external');
+  const groups = external.length > 0 ? external : searchGroups;
   const results = [];
   const seen = new Set();
 
   const pushItem = (item) => {
-    if (!item?.ratingKey) return;
-    const type = item.type;
-    if (type !== 'movie' && type !== 'show') return;
-    const key = String(item.ratingKey);
-    if (seen.has(key)) return;
-    seen.add(key);
-    results.push(mapMetadata(item));
+    if (!item || typeof item !== 'object') return;
+    const metas = item.ratingKey
+      ? [item]
+      : asList(item.Metadata);
+    for (const meta of metas) {
+      if (!meta?.ratingKey) continue;
+      const type = meta.type;
+      if (type !== 'movie' && type !== 'show') continue;
+      const key = String(meta.ratingKey);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      results.push(mapMetadata(meta));
+    }
   };
 
   for (const hub of hubs) {
     for (const item of asList(hub.Metadata)) pushItem(item);
+  }
+  for (const group of groups) {
+    for (const item of asList(group.SearchResult ?? group.Metadata)) pushItem(item);
   }
   for (const item of direct) pushItem(item);
   return results;
@@ -475,39 +488,46 @@ export class PlexClient {
     const q = String(query || '').trim();
     if (!q) return [];
 
-    const attempts = [
-      // Cloud Discover search (not /library/search — that 404s with "Missing library search")
-      ...DISCOVER_BASES.map((base) => ({
-        kind: 'account',
-        base,
-        path: '/hubs/search',
-      })),
-      // Local PMS hub search as a fallback for titles already in the library
-      ...(this.url
-        ? [{ kind: 'server', base: this.url, path: '/hubs/search' }]
-        : []),
-    ];
+    const capped = Math.min(50, Math.max(1, limit));
+    // Discover title search. /hubs/search is a PMS route and 404s here.
+    // /library/search on metadata.provider 404s with "Missing library search";
+    // the working call is discover.provider plus searchProviders=discover.
+    const discoverQuery = {
+      query: q,
+      limit: capped,
+      searchTypes: 'movies,tv',
+      searchProviders: 'discover',
+      includeMetadata: '1',
+      includeGuids: '1',
+    };
 
     let lastError = null;
-    for (const attempt of attempts) {
-      try {
-        const data =
-          attempt.kind === 'server'
-            ? await this.request('GET', attempt.path, {
-                query: {
-                  query: q,
-                  limit: Math.min(50, Math.max(1, limit)),
-                  includeGuids: '1',
-                },
-              })
-            : await this.accountRequest('GET', attempt.base, attempt.path, {
-                query: {
-                  query: q,
-                  limit: Math.min(50, Math.max(1, limit)),
-                  includeGuids: '1',
-                },
-              });
+    let sawSuccess = false;
 
+    try {
+      const data = await this.accountRequest(
+        'GET',
+        DISCOVER_BASES[0],
+        '/library/search',
+        { query: discoverQuery },
+      );
+      sawSuccess = true;
+      const results = extractSearchResults(data);
+      if (results.length > 0) return results;
+    } catch (err) {
+      lastError = err.message;
+    }
+
+    if (this.url) {
+      try {
+        const data = await this.request('GET', '/hubs/search', {
+          query: {
+            query: q,
+            limit: capped,
+            includeGuids: '1',
+          },
+        });
+        sawSuccess = true;
         const results = extractSearchResults(data);
         if (results.length > 0) return results;
       } catch (err) {
@@ -515,7 +535,7 @@ export class PlexClient {
       }
     }
 
-    if (lastError) throw new Error(lastError);
+    if (!sawSuccess && lastError) throw new Error(lastError);
     return [];
   }
 

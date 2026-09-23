@@ -17,9 +17,9 @@ services:
       - ./data:/data
       # Optional: lets Home → Update replace this container.
       # DOCKER_GID is the group that owns /var/run/docker.sock on the host.
-      # - /var/run/docker.sock:/var/run/docker.sock
-    # group_add:
-    #   - "${DOCKER_GID}"
+       - /var/run/docker.sock:/var/run/docker.sock
+     group_add:
+       - "${DOCKER_GID}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
