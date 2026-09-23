@@ -14,11 +14,13 @@ import {
   compactAlsoOn,
   derivePreferredRegion,
   filterAiringsByLocation,
+  filterDigestItems,
   isChannelExcluded,
   isRadioChannel,
   resolveExcludedChannels,
   DEFAULT_EXCLUDED_CHANNELS,
 } from '../lib/channels.js';
+import { renderDigestEmail } from '../lib/digest-mail.js';
 import { parseXmltvWindow, parseXmltvTime, collapseAirings, inferMediaType } from '../lib/epg.js';
 import {
   findWatchlistHit,
@@ -26,6 +28,7 @@ import {
   trackPerson,
   getTrackedPeople,
   libraryHasTitle,
+  sendDigest,
 } from '../lib/match.js';
 import { createTmdbClient } from '../lib/tmdb.js';
 
@@ -397,6 +400,119 @@ test('inferMediaType and parseXmltvWindow drop radio programmes', () => {
   assert.equal(programmes.length, 1);
   assert.equal(programmes[0].channelFamily, 'Film4');
   assert.equal(programmes[0].mediaTypeHint, 'movie');
+});
+
+test('filterDigestItems drops radio, foreign, and off-DVR channels', () => {
+  const items = [
+    { title: 'News', channel: 'France 24', alsoOn: ['RTE One'] },
+    { title: 'The Archers', channel: 'BBC Radio 4', mediaType: 'radio' },
+    { title: 'Elsewhere', channel: 'Sky Arts' },
+    {
+      title: 'Inception',
+      channel: 'Film4',
+      alsoOn: ['HD', 'France 24', '+1'],
+      mediaType: 'movie',
+      year: 2010,
+      reason: 'watchlist',
+      startsAt: '2026-09-24T20:00:00.000Z',
+    },
+  ];
+
+  const kept = filterDigestItems(items, {
+    excludedChannels: DEFAULT_EXCLUDED_CHANNELS,
+    restrictToDvr: true,
+    dvrChannelTitles: ['Film4', 'BBC One West Midlands'],
+  });
+
+  assert.equal(kept.length, 1);
+  assert.equal(kept[0].title, 'Inception');
+  assert.deepEqual(kept[0].alsoOn, ['HD', '+1']);
+});
+
+test('renderDigestEmail is a card layout grouped by day', () => {
+  const { subject, text, html } = renderDigestEmail([
+    {
+      title: 'Inception',
+      year: 2010,
+      channel: 'Film4',
+      mediaType: 'movie',
+      reason: 'watchlist',
+      startsAt: '2026-09-24T20:00:00.000Z',
+      alsoOn: ['HD'],
+    },
+    {
+      title: 'The Apartment',
+      year: 1960,
+      channel: 'BBC Two',
+      mediaType: 'movie',
+      reason: 'tracked_person',
+      personName: 'Jack Lemmon',
+      startsAt: '2026-09-25T18:30:00.000Z',
+    },
+  ]);
+
+  assert.match(subject, /2 titles on Freeview/);
+  assert.match(html, /On Freeview this week/);
+  assert.match(html, /Inception/);
+  assert.match(html, /Film4/);
+  assert.match(html, /On your watchlist/);
+  assert.match(html, /Also on HD/);
+  assert.match(html, /Featuring Jack Lemmon/);
+  assert.equal(html.includes('toUTCString') || html.includes('GMT'), false);
+  assert.match(text, /Inception/);
+  assert.match(text, /The Apartment/);
+});
+
+test('sendDigest emails only channels that pass the match rules', async () => {
+  const store = {
+    pendingDigest: [
+      { notifyKey: 'a', title: 'French news', channel: 'France 24' },
+      { notifyKey: 'radio', title: 'Ken Bruce', channel: 'BBC Radio 2' },
+      {
+        notifyKey: 'b',
+        title: 'Inception',
+        channel: 'Film4',
+        year: 2010,
+        reason: 'watchlist',
+        mediaType: 'movie',
+        startsAt: '2026-09-24T20:00:00.000Z',
+      },
+    ],
+    sentTitles: [],
+  };
+  let sentMail;
+  const ctx = {
+    storage: {
+      get: (k) => store[k],
+      set: (k, v) => {
+        store[k] = v;
+      },
+    },
+    settings: {
+      get: () => ({
+        smtpHost: 'smtp.example.com',
+        smtpFrom: 'a@b.c',
+        smtpTo: 'd@e.f',
+        restrictToDvrChannels: false,
+        excludedChannels: DEFAULT_EXCLUDED_CHANNELS,
+      }),
+    },
+    mail: {
+      send: async (msg) => {
+        sentMail = msg;
+      },
+    },
+  };
+
+  const result = await sendDigest(ctx);
+  assert.equal(result.sent, 1);
+  assert.equal(result.skipped, 2);
+  assert.match(sentMail.html, /Inception/);
+  assert.equal(sentMail.html.includes('France 24'), false);
+  assert.equal(sentMail.html.includes('BBC Radio 2'), false);
+  assert.equal(sentMail.text.includes('GMT'), false);
+  assert.deepEqual(store.pendingDigest, []);
+  assert.deepEqual(store.sentTitles, ['b']);
 });
 
 function mockCtx(initial = {}) {

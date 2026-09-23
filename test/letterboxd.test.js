@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  nextWatchlistPage,
+  parseWatchlistHtml,
   parseWatchlistRss,
   splitTitleYear,
+  watchlistPageUrl,
   watchlistRssUrl,
 } from '../tools/letterboxd-watchlist/lib/rss.js';
 import { runSync } from '../tools/letterboxd-watchlist/lib/sync.js';
@@ -49,6 +52,79 @@ test('watchlistRssUrl builds a public RSS URL', () => {
     'https://letterboxd.com/someuser/watchlist/rss/',
   );
   assert.throws(() => watchlistRssUrl(''), /required/);
+});
+
+const SAMPLE_HTML = `<div class="pagination">
+  <a class="next" href="/dave/watchlist/page/2/">Older</a>
+</div>
+<div class="react-component" data-component-class="LazyPoster" data-item-name="Inception (2010)" data-item-link="/film/inception/" data-item-full-display-name="Inception (2010)"></div>
+<div class="react-component" data-component-class="LazyPoster" data-item-link="/film/the-matrix/" data-item-full-display-name="The Matrix (1999)"></div>`;
+
+const PAGE_TWO_HTML = `<div class="react-component" data-component-class="LazyPoster" data-item-link="/film/dune-2021/" data-item-full-display-name="Dune (2021)"></div>`;
+
+test('parseWatchlistHtml reads poster titles and the next page', () => {
+  const items = parseWatchlistHtml(SAMPLE_HTML);
+  assert.equal(items.length, 2);
+  assert.equal(items[0].title, 'Inception');
+  assert.equal(items[0].year, 2010);
+  assert.equal(items[0].link, 'https://letterboxd.com/film/inception/');
+  assert.equal(nextWatchlistPage(SAMPLE_HTML), '/dave/watchlist/page/2/');
+  assert.equal(watchlistPageUrl('dave'), 'https://letterboxd.com/dave/watchlist/');
+});
+
+test('runSync follows watchlist pages when RSS is unavailable', async () => {
+  const added = [];
+  const storage = new Map();
+  const ctx = {
+    settings: {
+      get() {
+        return { letterboxdUsername: 'dave', enabled: true };
+      },
+    },
+    storage: {
+      get(key) {
+        return storage.get(key) ?? null;
+      },
+      set(key, value) {
+        storage.set(key, value);
+      },
+    },
+    plex: {
+      async getWatchlist() {
+        return [];
+      },
+      async searchDiscover(query) {
+        if (String(query).includes('Inception')) {
+          return [{ ratingKey: '1', title: 'Inception', year: 2010, type: 'movie' }];
+        }
+        if (String(query).includes('Matrix')) {
+          return [{ ratingKey: '2', title: 'The Matrix', year: 1999, type: 'movie' }];
+        }
+        if (String(query).includes('Dune')) {
+          return [{ ratingKey: '3', title: 'Dune', year: 2021, type: 'movie' }];
+        }
+        return [];
+      },
+      async addToWatchlist(ratingKey) {
+        added.push(String(ratingKey));
+        return { ok: true, ratingKey: String(ratingKey) };
+      },
+    },
+  };
+
+  const result = await runSync(ctx, {
+    fetchRss: async (url) => ({
+      ok: true,
+      status: 200,
+      async text() {
+        return String(url).includes('/page/2/') ? PAGE_TWO_HTML : SAMPLE_HTML;
+      },
+    }),
+  });
+
+  assert.equal(result.total, 3);
+  assert.equal(result.added, 3);
+  assert.deepEqual(added.sort(), ['1', '2', '3']);
 });
 
 test('parseWatchlistRss reads title year and link', () => {

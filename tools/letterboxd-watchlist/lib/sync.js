@@ -1,4 +1,22 @@
-import { parseWatchlistRss, watchlistRssUrl } from './rss.js';
+import { Impit } from 'impit';
+import {
+  isCloudflareChallenge,
+  nextWatchlistPage,
+  parseWatchlistHtml,
+  parseWatchlistRss,
+  watchlistPageUrl,
+} from './rss.js';
+
+const MAX_WATCHLIST_PAGES = 50;
+
+let letterboxdClient;
+
+function defaultFetch(url) {
+  if (!letterboxdClient) {
+    letterboxdClient = new Impit({ browser: 'firefox' });
+  }
+  return letterboxdClient.fetch(url);
+}
 
 /**
  * Sync a public Letterboxd watchlist into the Plex account watchlist.
@@ -18,20 +36,8 @@ export async function runSync(ctx, opts = {}) {
     };
   }
 
-  const url = watchlistRssUrl(username);
-  const fetchFn = opts.fetchRss || fetch;
-  const res = await fetchFn(url, {
-    headers: {
-      'User-Agent': 'plex-toolkit-letterboxd-watchlist',
-      Accept: 'application/rss+xml, application/xml, text/xml, */*',
-    },
-    redirect: 'follow',
-  });
-  if (!res.ok) {
-    throw new Error(`Letterboxd RSS failed: HTTP ${res.status}`);
-  }
-  const xml = await res.text();
-  const items = parseWatchlistRss(xml);
+  const fetchFn = opts.fetchRss || defaultFetch;
+  const items = await loadWatchlist(username, fetchFn);
   if (items.length === 0) {
     const result = {
       ok: true,
@@ -91,6 +97,77 @@ export async function runSync(ctx, opts = {}) {
   };
   ctx.storage.set('lastSync', { ...result, at: new Date().toISOString() });
   return result;
+}
+
+async function loadWatchlist(username, fetchFn) {
+  const firstUrl = watchlistPageUrl(username);
+  const first = await fetchFn(firstUrl);
+  const body = await first.text();
+  if (first.ok && looksLikeRss(body)) {
+    return parseWatchlistRss(body);
+  }
+
+  assertWatchlistPage(first.status, body);
+  const items = [];
+  const seen = new Set();
+  collectPage(items, seen, body);
+
+  let next = nextWatchlistPage(body);
+  const visited = new Set([firstUrl]);
+  for (let page = 0; next && page < MAX_WATCHLIST_PAGES; page += 1) {
+    const url = new URL(next, 'https://letterboxd.com').href;
+    if (visited.has(url)) break;
+    visited.add(url);
+    const res = await fetchFn(url);
+    const html = await res.text();
+    if (res.ok && looksLikeRss(html)) {
+      collectRss(items, seen, html);
+      break;
+    }
+    assertWatchlistPage(res.status, html);
+    const before = items.length;
+    collectPage(items, seen, html);
+    if (items.length === before) break;
+    next = nextWatchlistPage(html);
+  }
+  return items;
+}
+
+function looksLikeRss(body) {
+  return /<rss[\s>]|<item\b/i.test(String(body || '').slice(0, 800));
+}
+
+function collectRss(items, seen, xml) {
+  for (const item of parseWatchlistRss(xml)) {
+    const key = item.guid || item.link || item.titleRaw;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push(item);
+  }
+}
+
+function collectPage(items, seen, html) {
+  for (const item of parseWatchlistHtml(html)) {
+    const key = item.link || item.titleRaw;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push(item);
+  }
+}
+
+function assertWatchlistPage(status, html) {
+  if (isCloudflareChallenge(html)) {
+    throw new Error('Letterboxd blocked the request. Try the sync again in a few minutes.');
+  }
+  if (status === 404) {
+    throw new Error('Letterboxd user not found. Check the username and that the watchlist is public.');
+  }
+  if (status === 403 || /letterboxd - forbidden/i.test(String(html).slice(0, 2500))) {
+    throw new Error('Letterboxd watchlist is private or unavailable.');
+  }
+  if (status && status >= 400) {
+    throw new Error(`Letterboxd watchlist failed: HTTP ${status}`);
+  }
 }
 
 function buildWatchlistIndex(watchlist) {

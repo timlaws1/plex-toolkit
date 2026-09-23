@@ -14,8 +14,10 @@ import { createTmdbClient, getTmdbConfig } from './tmdb.js';
 import {
   derivePreferredRegion,
   filterAiringsByLocation,
+  filterDigestItems,
   resolveExcludedChannels,
 } from './channels.js';
+import { renderDigestEmail } from './digest-mail.js';
 
 const TRACKED_KEY = 'trackedPeople';
 const FILMOGRAPHY_CACHE_KEY = 'filmographyCache';
@@ -767,57 +769,49 @@ export async function sendDigest(ctx) {
   }
 
   const settings = ctx.settings.get();
+  const dvrTitles = await loadDvrChannelTitles(ctx);
+  const restrictToDvr =
+    settings.restrictToDvrChannels !== false && dvrTitles.length > 0;
+  const kept = filterDigestItems(pending, {
+    excludedChannels: settings.excludedChannels,
+    restrictToDvr,
+    dvrChannelTitles: dvrTitles,
+  });
+  const skipped = pending.length - kept.length;
+
+  if (kept.length === 0) {
+    ctx.storage.set(DIGEST_KEY, []);
+    return {
+      sent: 0,
+      skipped,
+      message: `Nothing to send. Dropped ${skipped} title(s) on radio or excluded channels.`,
+    };
+  }
+
+  if (skipped > 0) {
+    ctx.storage.set(DIGEST_KEY, kept);
+  }
+
   if (!settings.smtpHost || !settings.smtpTo || !settings.smtpFrom) {
     throw new Error('Configure SMTP host, from, and to addresses in settings');
   }
 
-  const count = pending.length;
-  const subject =
-    count === 1
-      ? '1 upcoming title on Freeview'
-      : `${count} upcoming titles on Freeview`;
-
-  const lines = pending.map((item) => {
-    const when = item.startsAt ? new Date(item.startsAt).toUTCString() : '';
-    const also =
-      item.alsoOn?.length > 0 ? ` (also ${item.alsoOn.join(', ')})` : '';
-    const reason =
-      item.reason === 'watchlist'
-        ? 'Watchlist'
-        : item.personName
-          ? `Tracked: ${item.personName}`
-          : 'Tracked person';
-    return `• ${item.title}${item.year ? ` (${item.year})` : ''} — ${item.channel || ''}${also} ${when} [${reason}]`;
-  });
-
-  const text = `Upcoming Freeview matches:\n\n${lines.join('\n')}\n`;
-  const html = `<p>Upcoming Freeview matches:</p><ul>${pending
-    .map((item) => {
-      const when = item.startsAt ? new Date(item.startsAt).toUTCString() : '';
-      const also =
-        item.alsoOn?.length > 0
-          ? ` <span style="opacity:.7">(also ${escapeHtml(item.alsoOn.join(', '))})</span>`
-          : '';
-      const reason =
-        item.reason === 'watchlist'
-          ? 'Watchlist'
-          : item.personName
-            ? `Tracked: ${escapeHtml(item.personName)}`
-            : 'Tracked person';
-      return `<li><strong>${escapeHtml(item.title)}</strong>${
-        item.year ? ` (${item.year})` : ''
-      } — ${escapeHtml(item.channel || '')}${also} ${escapeHtml(when)} <em>${reason}</em></li>`;
-    })
-    .join('')}</ul>`;
-
+  const { subject, text, html } = renderDigestEmail(kept);
   await ctx.mail.send({ subject, text, html });
 
   const sent = new Set(ctx.storage.get(SENT_KEY) || []);
-  for (const item of pending) sent.add(item.notifyKey);
+  for (const item of kept) sent.add(item.notifyKey);
   ctx.storage.set(SENT_KEY, [...sent]);
   ctx.storage.set(DIGEST_KEY, []);
 
-  return { sent: count, message: `Sent digest with ${count} title(s)` };
+  const skipNote = skipped
+    ? ` Dropped ${skipped} on radio or excluded channels.`
+    : '';
+  return {
+    sent: kept.length,
+    skipped,
+    message: `Sent digest with ${kept.length} title(s).${skipNote}`,
+  };
 }
 
 export function getPendingDigest(ctx) {
@@ -826,12 +820,4 @@ export function getPendingDigest(ctx) {
 
 export function getLastMatch(ctx) {
   return ctx.storage.get(LAST_MATCH_KEY) || null;
-}
-
-function escapeHtml(s) {
-  return String(s || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }

@@ -483,3 +483,43 @@ export function filterAiringsByLocation(
     return true;
   });
 }
+
+const ALSO_ON_KEEP_RE = /^(?:HD|\+1|\d+ other channels)$/i;
+
+/**
+ * Same location rules as Freeview matching, applied to queued digest rows.
+ * Drops radio and excluded/off-DVR channels; strips those names from also-on.
+ */
+export function filterDigestItems(
+  items,
+  {
+    excludedChannels = DEFAULT_EXCLUDED_CHANNELS,
+    restrictToDvr = false,
+    dvrChannelTitles = [],
+  } = {},
+) {
+  const opts = { excludedChannels, restrictToDvr, dvrChannelTitles };
+  return (items || []).flatMap((item) => {
+    const channel = String(item?.channel || '').trim();
+    const mediaType = String(item?.mediaType || '').toLowerCase();
+    if (mediaType === 'radio') return [];
+    if (channel && !channelAllowed(channel, opts)) return [];
+
+    const alsoOn = (item?.alsoOn || []).filter((label) => {
+      const text = String(label || '').trim();
+      if (!text) return false;
+      if (ALSO_ON_KEEP_RE.test(text)) return true;
+      return channelAllowed(text, opts);
+    });
+
+    return [{ ...item, alsoOn }];
+  });
+}
+
+function channelAllowed(channelName, opts) {
+  const probe = {
+    channel: channelName,
+    channels: [{ name: channelName }],
+  };
+  return filterAiringsByLocation([probe], opts).length > 0;
+}

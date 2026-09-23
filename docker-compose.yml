@@ -1,5 +1,6 @@
 services:
   plex-toolkit:
+    image: ghcr.io/timlaws1/plex-toolkit:latest
     build: .
     container_name: plex-toolkit
     ports:
