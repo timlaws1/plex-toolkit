@@ -253,6 +253,17 @@ export class PlexClient {
   }
 
   /**
+   * Trigger a library section scan (partial refresh).
+   * @param {string|number} sectionId
+   */
+  async refreshLibrary(sectionId) {
+    const id = String(sectionId || '').trim();
+    if (!id) throw new Error('Library section id is required');
+    await this.request('GET', `/library/sections/${encodeURIComponent(id)}/refresh`);
+    return { ok: true, sectionId: id };
+  }
+
+  /**
    * Paged library listing for movies (type=1) or shows (type=2).
    * @param {string} libraryId
    * @param {{ type?: number|string, start?: number, size?: number }} [opts]
@@ -434,6 +445,29 @@ export class PlexClient {
     }
 
     throw new Error(lastError || 'Plex watchlist request failed');
+  }
+
+  /**
+   * Add a Discover item to the account watchlist.
+   * @param {string|number} ratingKey
+   */
+  async addToWatchlist(ratingKey) {
+    if (!this.token) throw new Error('Plex token is not configured');
+    const key = String(ratingKey || '').trim();
+    if (!key) throw new Error('ratingKey is required');
+
+    let lastError = null;
+    for (const base of DISCOVER_BASES) {
+      try {
+        await this.accountRequest('PUT', base, '/actions/addToWatchlist', {
+          query: { ratingKey: key },
+        });
+        return { ok: true, ratingKey: key };
+      } catch (err) {
+        lastError = err.message;
+      }
+    }
+    throw new Error(lastError || 'Plex addToWatchlist failed');
   }
 
   async searchDiscover(query, { limit = 20 } = {}) {

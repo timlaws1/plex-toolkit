@@ -44,19 +44,14 @@ export const config = {
   configDir: path.join(dataDir, 'config'),
   databaseDir: path.join(dataDir, 'database'),
   pluginsDir: path.join(dataDir, 'plugins'),
+  toolsDir: path.join(ROOT, 'tools'),
   logsDir: path.join(dataDir, 'logs'),
   dbPath: path.join(dataDir, 'database', 'toolkit.sqlite'),
   secretKeyPath: path.join(dataDir, 'config', 'secret.key'),
   clientIdPath: path.join(dataDir, 'config', 'client.id'),
   adminPassword: process.env.ADMIN_PASSWORD || '',
   plexClientId: process.env.PLEX_CLIENT_ID || '',
-  catalogueUrl: process.env.CATALOGUE_URL || '',
   publicUrl: process.env.PUBLIC_URL || '',
-  pluginLocalRoots: (process.env.PLUGIN_LOCAL_ROOTS || '')
-    .split(/[;]/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((p) => (path.isAbsolute(p) ? p : path.resolve(ROOT, p))),
 };
 
 export function ensureDataDirs() {

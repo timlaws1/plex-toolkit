@@ -1,11 +1,11 @@
-# Plex Toolkit Plugin API (v1)
+# Plex Toolkit Tool API (v1)
 
-Plugins are independent packages installed into the host's `plugins/` directory.
+Bundled tools live under `tools/` in the image and are copied into `data/plugins` on every boot.
 
 ## Package layout
 
 ```text
-my-plugin/
+my-tool/
   plugin.json
   plugin.js
   settings.html   # optional; shown in a sandboxed iframe only
@@ -15,8 +15,8 @@ my-plugin/
 
 ```json
 {
-  "id": "my-plugin",
-  "name": "My Plugin",
+  "id": "my-tool",
+  "name": "My Tool",
   "version": "1.0.0",
   "apiVersion": 1,
   "author": "Author",
@@ -27,6 +27,7 @@ my-plugin/
     "plex.discover",
     "plex.watch_state",
     "plex.dvr",
+    "plex.refresh",
     "events.subscribe",
     "storage",
     "scheduler",
@@ -53,7 +54,7 @@ my-plugin/
 
 - `apiVersion` must be `1`
 - `id` must be kebab-case
-- `entry` must be a relative path inside the plugin directory
+- `entry` must be a relative path inside the tool directory
 - Unknown permissions are rejected at install time
 - Setting type `secret` is encrypted at rest; leave blank on save to keep the previous value
 
@@ -70,7 +71,7 @@ export async function deactivate(ctx) {
 
 /** Optional interactive page at GET/POST /plugins/:id/app */
 export async function handleRequest(ctx, req) {
-  return { title: 'My Plugin', body: '<h1>Hello</h1>' };
+  return { title: 'My Tool', body: '<h1>Hello</h1>' };
 }
 ```
 
@@ -78,7 +79,7 @@ export async function handleRequest(ctx, req) {
 
 ## Context (`ctx`)
 
-The host passes a facade only. Plugins do not receive the Plex token, filesystem access, or the database handle.
+The host passes a facade only. Tools do not receive the Plex token, filesystem access, or the database handle.
 
 ### Logging
 
@@ -90,10 +91,11 @@ The host passes a facade only. Plugins do not receive the Plex token, filesystem
 
 - `ctx.settings.get()` → object of saved settings (secrets decrypted)
 
-### Plex (`plex.read` / `plex.watch_state` / `plex.discover` / `plex.dvr`)
+### Plex (`plex.read` / `plex.watch_state` / `plex.discover` / `plex.dvr` / `plex.refresh`)
 
 - `ctx.plex.getServer()`
 - `ctx.plex.getLibraries()`
+- `ctx.plex.refreshLibrary(sectionId)` — trigger a library section scan (`plex.refresh`)
 - `ctx.plex.getLibraryItems(libraryId, { type, start, size })` — paged movies/shows with guids, cast, crew, genres, view counts
 - `ctx.plex.getShows(libraryId)` — TV shows with guids and credits when present
 - `ctx.plex.getEpisodes(showRatingKey)` — ordered by season, then episode
@@ -102,6 +104,7 @@ The host passes a facade only. Plugins do not receive the Plex token, filesystem
 - `ctx.plex.markWatched(ratingKey)` — Plex scrobble
 - `ctx.plex.markUnwatched(ratingKey)` — Plex unscrobble (preserves history where Plex allows)
 - `ctx.plex.getWatchlist()` — account watchlist via Discover (`plex.discover`)
+- `ctx.plex.addToWatchlist(ratingKey)` — add a Discover item to the account watchlist (`plex.discover`)
 - `ctx.plex.searchDiscover(query, { limit })` — title search (`plex.discover`)
 - `ctx.plex.getDiscoverMetadata(ratingKeyOrPath)` — Discover metadata with cast (`plex.discover`)
 - `ctx.plex.getDvrs()` — configured DVRs (`plex.dvr`)
@@ -127,7 +130,7 @@ Playback payloads include `accountId`, `ratingKey`, progress fields, and `wasWat
 
 ### Storage (`storage`)
 
-Key-value store scoped to the plugin id:
+Key-value store scoped to the tool id:
 
 - `ctx.storage.get(key)`
 - `ctx.storage.set(key, value)`
@@ -139,7 +142,7 @@ Key-value store scoped to the plugin id:
 
 ### Mail (`mail.send`)
 
-- `ctx.mail.send({ to, subject, text, html, from })` — uses the plugin's SMTP settings (`smtpHost`, `smtpPort`, `smtpUser`, `smtpPassword`, `smtpFrom`, `smtpTo`, optional `smtpSecure`)
+- `ctx.mail.send({ to, subject, text, html, from })` — uses the tool's SMTP settings (`smtpHost`, `smtpPort`, `smtpUser`, `smtpPassword`, `smtpFrom`, `smtpTo`, optional `smtpSecure`)
 
 ### Change batches / undo (`changes`)
 
@@ -150,7 +153,7 @@ Key-value store scoped to the plugin id:
 
 ### Panels
 
-Register UI on the plugin settings page without injecting HTML into the host:
+Register UI on the tool settings page without injecting HTML into the host:
 
 ```js
 ctx.panels.add({
@@ -177,7 +180,7 @@ ctx.panels.add({
 ## Security notes (v1)
 
 - Manifest validation and permission checks are enforced
-- GitHub installs require explicit confirmation in the UI
-- Local installs only work under `PLUGIN_LOCAL_ROOTS`
+- Official tools ship under `tools/` and are recopied into `data/plugins` on every boot
+- Library refresh requires `plex.refresh` (not `plex.read`)
 - Runtime is in-process today; `PluginRuntime` is an interface so a worker/process sandbox can replace it later
 - Do not assume Node `vm` isolation

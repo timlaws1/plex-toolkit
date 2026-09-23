@@ -83,6 +83,10 @@ export function createPluginApi({
         requirePerm('plex.read');
         return plex.getLibraries();
       },
+      async refreshLibrary(sectionId) {
+        requirePerm('plex.refresh');
+        return plex.refreshLibrary(sectionId);
+      },
       async getLibraryItems(libraryId, opts) {
         requirePerm('plex.read');
         return plex.getLibraryItems(libraryId, opts);
@@ -114,6 +118,10 @@ export function createPluginApi({
       async getWatchlist() {
         requirePerm('plex.discover');
         return plex.getWatchlist();
+      },
+      async addToWatchlist(ratingKey) {
+        requirePerm('plex.discover');
+        return plex.addToWatchlist(ratingKey);
       },
       async searchDiscover(query, opts) {
         requirePerm('plex.discover');

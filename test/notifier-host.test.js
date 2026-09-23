@@ -134,3 +134,56 @@ test('plugin api exposes discover and mail behind permissions', async () => {
   db.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('renderGroupedSettings sections and advanced disclosure', async () => {
+  const { renderGroupedSettings } = await import('../src/http/views/layout.js');
+  const schema = [
+    {
+      key: 'enabled',
+      type: 'boolean',
+      label: 'Enabled',
+      section: 'What to watch',
+      default: true,
+    },
+    {
+      key: 'smtpHost',
+      type: 'string',
+      label: 'SMTP host',
+      section: 'Email',
+      pairWith: 'smtpPort',
+    },
+    {
+      key: 'smtpPort',
+      type: 'number',
+      label: 'SMTP port',
+      section: 'Email',
+      default: 587,
+    },
+    {
+      key: 'epgUrl',
+      type: 'string',
+      label: 'Freeview EPG URL',
+      advanced: true,
+      default: 'https://example.com/epg.xml',
+    },
+    {
+      key: 'tmdbBaseUrl',
+      type: 'string',
+      label: 'TMDB API base URL',
+      advanced: true,
+    },
+  ];
+
+  const html = renderGroupedSettings(schema, { enabled: true, smtpHost: 'mail.example' }, [], []);
+
+  assert.match(html, /What to watch/);
+  assert.match(html, /Email/);
+  assert.match(html, /field-grid/);
+  assert.match(html, /<details class="advanced-block">/);
+  assert.match(html, /Freeview EPG URL/);
+  assert.match(html, /TMDB API base URL/);
+
+  const beforeAdvanced = html.split('advanced-block')[0];
+  assert.doesNotMatch(beforeAdvanced, /Freeview EPG URL/);
+  assert.doesNotMatch(beforeAdvanced, /TMDB API base URL/);
+});

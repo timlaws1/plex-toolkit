@@ -74,6 +74,7 @@ function copyDir(src, dest) {
 export class PluginManager {
   constructor({
     pluginsDir,
+    toolsDir = null,
     db,
     runtime,
     logger,
@@ -81,11 +82,96 @@ export class PluginManager {
     secrets = null,
   }) {
     this.pluginsDir = pluginsDir;
+    this.toolsDir = toolsDir ? path.resolve(toolsDir) : null;
     this.db = db;
     this.runtime = runtime;
     this.logger = logger;
     this.pluginLocalRoots = pluginLocalRoots.map((p) => path.resolve(p));
     this.secrets = secrets;
+  }
+
+  /**
+   * Copy tools from the image/repo `tools/` folder into data/plugins on every
+   * boot so bundled code cannot be replaced by a tampered volume copy.
+   * Preserves settings and the user's enabled flag; removes tools no longer
+   * shipped in the image.
+   */
+  async syncBundled() {
+    if (!this.toolsDir || !fs.existsSync(this.toolsDir)) {
+      this.logger.warn('No bundled tools directory found');
+      return;
+    }
+
+    const bundledIds = new Set();
+    const entries = fs.readdirSync(this.toolsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const srcDir = path.join(this.toolsDir, entry.name);
+      let manifest;
+      try {
+        manifest = this._readAndValidate(srcDir);
+      } catch (err) {
+        this.logger.error(
+          `Skipping invalid bundled tool ${entry.name}: ${err.message}`,
+        );
+        continue;
+      }
+      bundledIds.add(manifest.id);
+
+      const dest = this.pluginPath(manifest.id);
+      const existing = dbGet(this.db, manifest.id);
+
+      if (this.runtime.isActive(manifest.id)) {
+        await this.runtime.deactivate(manifest.id);
+      }
+      if (fs.existsSync(dest)) rmrf(dest);
+      copyDir(srcDir, dest);
+      this.logger.info(
+        `Synced bundled tool ${manifest.id}@${manifest.version}`,
+        { pluginId: manifest.id },
+      );
+
+      if (!existing) {
+        this._upsertDb(manifest, {
+          source_type: 'bundled',
+          source_url: srcDir,
+          enabled: 1,
+        });
+      } else {
+        this.db
+          .prepare(
+            `UPDATE plugins SET
+               name = ?,
+               version = ?,
+               author = ?,
+               description = ?,
+               source_type = 'bundled',
+               source_url = ?,
+               permissions = ?,
+               updated_at = datetime('now'),
+               last_error = NULL
+             WHERE id = ?`,
+          )
+          .run(
+            manifest.name,
+            manifest.version,
+            manifest.author,
+            manifest.description,
+            srcDir,
+            JSON.stringify(manifest.permissions),
+            manifest.id,
+          );
+      }
+    }
+
+    for (const row of this.listInstalled()) {
+      if (!bundledIds.has(row.id)) {
+        this.logger.info(`Removing tool not in image: ${row.id}`, {
+          pluginId: row.id,
+        });
+        await this.remove(row.id);
+      }
+    }
   }
 
   pluginPath(id) {

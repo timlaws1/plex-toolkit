@@ -1,0 +1,69 @@
+{
+  "id": "netflix-rewatch",
+  "name": "Netflix Rewatch",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "author": "Thunderhat",
+  "description": "Netflix-style rewatch behaviour for Plex TV shows. When you finish rewatching an already-watched episode, later episodes are marked unwatched so Plex Continue Watching advances naturally.",
+  "entry": "plugin.js",
+  "permissions": [
+    "plex.read",
+    "plex.watch_state",
+    "events.subscribe",
+    "storage",
+    "changes"
+  ],
+  "settingsSchema": [
+    {
+      "key": "enabled",
+      "type": "boolean",
+      "label": "Enabled",
+      "default": true,
+      "help": "Master switch for this plugin."
+    },
+    {
+      "key": "libraries",
+      "type": "plexLibraries",
+      "label": "TV libraries",
+      "default": [],
+      "help": "No libraries are selected by default. Choose which TV libraries may be modified."
+    },
+    {
+      "key": "watchedThreshold",
+      "type": "number",
+      "label": "Watched threshold (%)",
+      "default": 90,
+      "min": 50,
+      "max": 100,
+      "help": "Only trigger after playback reaches this percentage of the episode."
+    },
+    {
+      "key": "includeSpecials",
+      "type": "boolean",
+      "label": "Include specials",
+      "default": false,
+      "help": "When off, season 0 episodes are ignored for rewind planning."
+    },
+    {
+      "key": "dryRun",
+      "type": "boolean",
+      "label": "Dry run",
+      "default": false,
+      "help": "Record what would change without calling Plex scrobble/unscrobble."
+    },
+    {
+      "key": "includeShows",
+      "type": "stringList",
+      "label": "Include shows only",
+      "default": [],
+      "help": "If non-empty, only these show titles are eligible (one per line)."
+    },
+    {
+      "key": "excludeShows",
+      "type": "stringList",
+      "label": "Excluded shows",
+      "default": ["The Simpsons", "Family Guy"],
+      "help": "Show titles that should never be rewritten (one per line)."
+    }
+  ]
+}

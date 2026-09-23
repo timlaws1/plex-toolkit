@@ -7,7 +7,6 @@ import { PlexClient } from './plex/client.js';
 import { ensureClientId } from './plex/auth.js';
 import { PlexEventMonitor } from './plex/events.js';
 import { PluginManager } from './plugins/manager.js';
-import { Catalogue } from './plugins/catalogue.js';
 import { InProcessRuntime, Scheduler } from './plugins/runtime.js';
 import { createApp } from './http/app.js';
 
@@ -67,16 +66,11 @@ async function main() {
 
   const pluginManager = new PluginManager({
     pluginsDir: config.pluginsDir,
+    toolsDir: config.toolsDir,
     db,
     runtime,
     logger: log,
-    pluginLocalRoots: config.pluginLocalRoots,
     secrets,
-  });
-
-  const catalogue = new Catalogue({
-    db,
-    defaultUrl: config.catalogueUrl,
   });
 
   const eventMonitor = new PlexEventMonitor({ plex, bus, logger: log });
@@ -86,13 +80,13 @@ async function main() {
     secrets,
     plex,
     pluginManager,
-    catalogue,
     eventMonitor,
     panels,
     logger: log,
     publicUrl: config.publicUrl,
   });
 
+  await pluginManager.syncBundled();
   await pluginManager.loadEnabled();
   eventMonitor.start();
 

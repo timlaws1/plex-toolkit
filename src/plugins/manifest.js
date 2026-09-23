@@ -5,6 +5,7 @@ const KNOWN_PERMISSIONS = new Set([
   'plex.watch_state',
   'plex.discover',
   'plex.dvr',
+  'plex.refresh',
   'events.subscribe',
   'storage',
   'scheduler',

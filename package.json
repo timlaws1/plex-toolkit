@@ -1,12 +1,14 @@
 {
   "name": "plex-toolkit",
   "version": "1.0.0",
-  "description": "Lightweight plugin host for Plex Media Server",
+  "description": "Self-hosted tools for Plex Media Server",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
+    "css": "tailwindcss -i ./src/http/public/input.css -o ./src/http/public/style.css",
+    "css:watch": "tailwindcss -i ./src/http/public/input.css -o ./src/http/public/style.css --watch",
     "test": "node --test test/**/*.test.js"
   },
   "engines": {
@@ -17,5 +19,9 @@
     "cookie-parser": "^1.4.7",
     "express": "^4.21.2",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.13",
+    "tailwindcss": "^4.1.13"
   }
 }

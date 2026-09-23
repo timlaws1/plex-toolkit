@@ -3,7 +3,12 @@ import cookieParser from 'cookie-parser';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { layout, escapeHtml, checkbox } from './views/layout.js';
+import {
+  layout,
+  escapeHtml,
+  pageHeader,
+  renderGroupedSettings,
+} from './views/layout.js';
 import { getSetting, setSetting } from '../db/index.js';
 import {
   createPin,
@@ -22,7 +27,6 @@ export function createApp(ctx) {
     secrets,
     plex,
     pluginManager,
-    catalogue,
     eventMonitor,
     panels,
     logger,
@@ -160,12 +164,13 @@ export function createApp(ctx) {
     render(req, res, {
       title: 'Login',
       nav: null,
-      body: `<div class="login-wrap card">
-        <h1>Sign in</h1>
-        <p class="muted">Enter the admin password configured for this container.</p>
+      body: `<div class="login-wrap panel">
+        ${pageHeader('Sign in', 'Enter the admin password for this toolkit.')}
         <form method="post" action="/login">
-          <label>Password</label>
-          <input type="password" name="password" required autofocus />
+          <div class="field">
+            <label for="password">Password</label>
+            <input id="password" type="password" name="password" required autofocus />
+          </div>
           <div class="row-actions"><button class="primary" type="submit">Sign in</button></div>
         </form>
       </div>`,
@@ -204,53 +209,79 @@ export function createApp(ctx) {
         : `<span class="badge err">Not connected</span>`;
 
     const pluginRows = plugins
-      .map(
-        (p) => `<tr>
-        <td>${escapeHtml(p.name)}</td>
-        <td class="mono">${escapeHtml(p.version)}</td>
-        <td>${p.enabled ? (p.active ? '<span class="badge ok">Active</span>' : '<span class="badge warn">Enabled</span>') : '<span class="badge">Disabled</span>'}</td>
-      </tr>`,
-      )
-      .join('') || `<tr><td colspan="3" class="muted">No plugins installed</td></tr>`;
+      .map((p) => {
+        const status = p.enabled
+          ? p.active
+            ? '<span class="badge ok">Active</span>'
+            : '<span class="badge warn">Enabled</span>'
+          : '<span class="badge">Disabled</span>';
+        return `<a class="list-row" href="/plugins/${encodeURIComponent(p.id)}" style="text-decoration:none;color:inherit">
+          <div>
+            <strong>${escapeHtml(p.name)}</strong>
+            <div class="muted" style="font-size:0.8rem;margin-top:0.2rem">v${escapeHtml(p.version)}</div>
+          </div>
+          <div>${status}</div>
+        </a>`;
+      })
+      .join('') || '<p class="muted">No tools installed yet.</p>';
 
     const activityRows = activity
       .map(
-        (a) => `<tr>
-        <td class="mono">${escapeHtml(a.created_at)}</td>
-        <td>${escapeHtml(a.plugin_id || '—')}</td>
-        <td>${escapeHtml(a.level)}</td>
-        <td>${escapeHtml(a.message)}</td>
-      </tr>`,
+        (a) => `<div class="feed-item">
+          <span class="when">${escapeHtml(a.created_at)}</span>
+          <div>
+            <strong style="font-size:0.9rem">${escapeHtml(a.plugin_id || 'system')}</strong>
+            <span class="muted"> · ${escapeHtml(a.level)}</span>
+            <div class="muted" style="margin-top:0.15rem">${escapeHtml(a.message)}</div>
+          </div>
+        </div>`,
       )
-      .join('') || `<tr><td colspan="4" class="muted">No recent activity</td></tr>`;
+      .join('') || '<p class="muted">No recent activity.</p>';
+
+    const webhookUrl = (publicUrl || '') + '/webhooks/plex';
 
     render(req, res, {
-      title: 'Dashboard',
+      title: 'Home',
       nav: 'dashboard',
       body: `
-        <h1>Dashboard</h1>
-        <div class="grid">
-          <div class="card">
-            <h3>Plex</h3>
-            <div>${statusBadge}</div>
-            <p class="stat">${escapeHtml(server?.name || '—')}</p>
-            <p class="muted">Version ${escapeHtml(server?.version || 'unknown')}</p>
-            ${server?.last_error ? `<p class="muted">Last error: ${escapeHtml(server.last_error)}</p>` : ''}
+        ${pageHeader('Home', 'Your Plex connection and tools at a glance.')}
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="label">Plex</div>
+            <div class="value" style="font-size:1.15rem;margin-top:0.5rem">${escapeHtml(server?.name || 'Not connected')}</div>
+            <div class="hint">${statusBadge} · ${escapeHtml(server?.version || '—')}</div>
+            ${server?.last_error ? `<div class="hint" style="color:var(--color-err)">${escapeHtml(server.last_error)}</div>` : ''}
           </div>
-          <div class="card">
-            <h3>Plugins</h3>
-            <p class="stat">${plugins.length}</p>
-            <p class="muted">${plugins.filter((p) => p.enabled).length} enabled</p>
+          <div class="stat-card">
+            <div class="label">Tools</div>
+            <div class="value">${plugins.length}</div>
+            <div class="hint">${plugins.filter((p) => p.enabled).length} enabled</div>
           </div>
-          <div class="card">
-            <h3>Webhook</h3>
-            <p class="muted mono">${escapeHtml((publicUrl || '(set PUBLIC_URL)') + '/webhooks/plex')}</p>
+          <div class="stat-card">
+            <div class="label">Status</div>
+            <div class="value" style="font-size:1.15rem;margin-top:0.5rem">${server?.last_ok_at ? 'Ready' : server ? 'Needs check' : 'Setup'}</div>
+            <div class="hint"><a href="/plex">Manage Plex</a></div>
           </div>
         </div>
-        <h2>Installed plugins</h2>
-        <div class="card"><table class="table"><thead><tr><th>Name</th><th>Version</th><th>Status</th></tr></thead><tbody>${pluginRows}</tbody></table></div>
-        <h2>Recent activity</h2>
-        <div class="card"><table class="table"><thead><tr><th>When</th><th>Plugin</th><th>Level</th><th>Message</th></tr></thead><tbody>${activityRows}</tbody></table></div>
+
+        <div class="panel" style="margin-top:1.25rem">
+          <h2 class="panel-title">Tools</h2>
+          <p class="panel-hint">Open a tool to change settings or use it.</p>
+          <div class="list-stack">${pluginRows}</div>
+        </div>
+
+        <div class="panel" style="margin-top:1.25rem">
+          <h2 class="panel-title">Recent activity</h2>
+          <div class="feed">${activityRows}</div>
+        </div>
+
+        <details class="details-block">
+          <summary>Webhook URL</summary>
+          <div class="details-body">
+            <p class="muted">Point Plex webhooks here so tools can react to playback.</p>
+            <p class="mono">${escapeHtml(publicUrl ? webhookUrl : 'Set PUBLIC_URL, then /webhooks/plex')}</p>
+          </div>
+        </details>
       `,
     });
   });
@@ -269,12 +300,13 @@ export function createApp(ctx) {
         )
         .join('');
       body = `
-        <h1>Choose a Plex server</h1>
-        <p class="muted">Your Plex account is signed in. Select which Media Server this toolkit should use.</p>
-        <div class="card">
+        ${pageHeader('Choose a Plex server', 'Your account is signed in. Pick which Media Server this toolkit should use.')}
+        <div class="panel">
           <form method="post" action="/plex/select-server">
-            <label>Server</label>
-            <select name="server_id" required>${options}</select>
+            <div class="field">
+              <label for="server_id">Server</label>
+              <select id="server_id" name="server_id" required>${options}</select>
+            </div>
             <div class="row-actions">
               <button class="primary" type="submit">Connect server</button>
               <a class="btn" href="/plex/login">Cancel</a>
@@ -283,9 +315,8 @@ export function createApp(ctx) {
         </div>`;
     } else if (!server?.token_encrypted) {
       body = `
-        <h1>Plex connection</h1>
-        <div class="card">
-          <p>Sign in with your Plex account. Plex Toolkit will discover your Media Server automatically — you do not need to paste a token or URL.</p>
+        ${pageHeader('Connect Plex', 'Sign in with your Plex account. The toolkit discovers your server — no token or URL to paste.')}
+        <div class="panel">
           <form method="post" action="/plex/login">
             <div class="row-actions">
               <button class="primary" type="submit">Log in with Plex</button>
@@ -295,9 +326,9 @@ export function createApp(ctx) {
     } else {
       const connected = Boolean(server.last_ok_at && server.url);
       body = `
-        <h1>Plex connection</h1>
-        <div class="card">
-          <p>
+        ${pageHeader('Plex', connected ? 'Connected and ready for tools.' : 'Signed in — finish connecting your server.')}
+        <div class="panel">
+          <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.75rem">
             ${
               connected
                 ? '<span class="badge ok">Connected</span>'
@@ -305,34 +336,42 @@ export function createApp(ctx) {
             }
             ${
               server.account_username
-                ? ` as <strong>${escapeHtml(server.account_username)}</strong>`
+                ? `<span class="muted">as ${escapeHtml(server.account_username)}</span>`
                 : ''
             }
-          </p>
-          <p class="stat">${escapeHtml(server.name || 'Plex')}</p>
-          <p class="muted">Server URL: <span class="mono">${escapeHtml(server.url || 'not set')}</span></p>
-          <p class="muted">Version: ${escapeHtml(server.version || '—')}</p>
-          <p class="muted">Machine ID: <span class="mono">${escapeHtml(server.machine_id || '—')}</span></p>
-          <p class="muted">Account ID: <span class="mono">${escapeHtml(server.plex_account_id || '—')}</span></p>
-          <p class="muted">Last OK: ${escapeHtml(server.last_ok_at || '—')}</p>
-          ${server.last_error ? `<p class="muted">Last error: ${escapeHtml(server.last_error)}</p>` : ''}
+          </div>
+          <p style="font-size:1.35rem;font-weight:650;margin:0">${escapeHtml(server.name || 'Plex')}</p>
+          <p class="muted" style="margin-top:0.35rem">Version ${escapeHtml(server.version || '—')} · Last OK ${escapeHtml(server.last_ok_at || '—')}</p>
+          ${server.last_error ? `<p class="muted" style="margin-top:0.5rem;color:var(--color-err)">${escapeHtml(server.last_error)}</p>` : ''}
           <div class="row-actions">
             <form method="post" action="/plex/test"><button type="submit">Test connection</button></form>
-            <form method="post" action="/plex/login"><button type="submit">Re-login with Plex</button></form>
+            <form method="post" action="/plex/login"><button type="submit">Re-login</button></form>
             <form method="post" action="/plex/disconnect" onsubmit="return confirm('Disconnect Plex from this toolkit?')">
               <button class="danger" type="submit">Disconnect</button>
             </form>
           </div>
         </div>
-        <h2>Server URL override</h2>
-        <div class="card">
-          <p class="muted">Only needed if automatic discovery cannot reach your server (e.g. custom LAN address).</p>
-          <form method="post" action="/plex/server-url">
-            <label>Server URL</label>
-            <input type="url" name="url" placeholder="http://192.168.1.10:32400" value="${escapeHtml(server.url || '')}" />
-            <div class="row-actions"><button type="submit">Save URL</button></div>
-          </form>
-        </div>`;
+        <details class="details-block">
+          <summary>Connection details</summary>
+          <div class="details-body">
+            <div class="kv"><span class="k">Server URL</span><span class="mono">${escapeHtml(server.url || 'not set')}</span></div>
+            <div class="kv"><span class="k">Machine ID</span><span class="mono">${escapeHtml(server.machine_id || '—')}</span></div>
+            <div class="kv"><span class="k">Account ID</span><span class="mono">${escapeHtml(server.plex_account_id || '—')}</span></div>
+          </div>
+        </details>
+        <details class="details-block">
+          <summary>Server URL override</summary>
+          <div class="details-body">
+            <p class="muted" style="margin-bottom:0.75rem">Only needed if automatic discovery cannot reach your server.</p>
+            <form method="post" action="/plex/server-url">
+              <div class="field">
+                <label for="url">Server URL</label>
+                <input id="url" type="url" name="url" placeholder="http://192.168.1.10:32400" value="${escapeHtml(server.url || '')}" />
+              </div>
+              <div class="row-actions"><button type="submit">Save URL</button></div>
+            </form>
+          </div>
+        </details>`;
     }
 
     render(req, res, { title: 'Plex', nav: 'plex', body });
@@ -367,9 +406,8 @@ export function createApp(ctx) {
       title: 'Authorize Plex',
       nav: 'plex',
       body: `
-        <h1>Authorize Plex</h1>
-        <div class="card">
-          <p>Open Plex to approve <strong>Plex Toolkit</strong>, then return here and continue.</p>
+        ${pageHeader('Authorize Plex', 'Approve Plex Toolkit in your browser, then continue here.')}
+        <div class="panel">
           <div class="row-actions">
             <a class="btn primary" href="${escapeHtml(pin.authUrl)}" target="_blank" rel="noopener noreferrer">Open Plex authorization</a>
             <a class="btn" href="/plex/callback">I've authorized — continue</a>
@@ -667,34 +705,39 @@ export function createApp(ctx) {
               ? '<span class="badge ok">Enabled</span>'
               : '<span class="badge warn">Enabled (inactive)</span>'
             : '<span class="badge">Disabled</span>';
+          const mod = p.enabled ? pluginManager.runtime.getModule(p.id) : null;
+          const hasApp =
+            typeof mod?.handleRequest === 'function' ||
+            typeof mod?.default?.handleRequest === 'function';
           return `<div class="plugin-row">
             <div>
               <strong>${escapeHtml(p.name)}</strong>
-              <div class="muted">Version ${escapeHtml(p.version)} · ${escapeHtml(p.id)}</div>
               <div style="margin-top:0.35rem">${status}</div>
-              ${p.last_error ? `<div class="muted">Error: ${escapeHtml(p.last_error)}</div>` : ''}
-              <p class="muted">${escapeHtml(p.description || '')}</p>
+              ${p.last_error ? `<div class="muted" style="margin-top:0.35rem;color:var(--color-err)">${escapeHtml(p.last_error)}</div>` : ''}
+              <p class="muted" style="margin-top:0.5rem;max-width:36rem">${escapeHtml(p.description || '')}</p>
             </div>
-            <div class="row-actions">
+            <div class="row-actions quiet">
+              ${
+                hasApp
+                  ? `<a class="btn primary" href="/plugins/${encodeURIComponent(p.id)}/app">Open</a>`
+                  : ''
+              }
               <a class="btn" href="/plugins/${encodeURIComponent(p.id)}">Settings</a>
               <form method="post" action="/plugins/${encodeURIComponent(p.id)}/${p.enabled ? 'disable' : 'enable'}">
                 <button type="submit">${p.enabled ? 'Disable' : 'Enable'}</button>
               </form>
-              <form method="post" action="/plugins/${encodeURIComponent(p.id)}/update">
-                <button type="submit">Update</button>
-              </form>
-              <form method="post" action="/plugins/${encodeURIComponent(p.id)}/remove" onsubmit="return confirm('Remove this plugin?')">
-                <button class="danger" type="submit">Remove</button>
-              </form>
             </div>
           </div>`;
         })
-        .join('') || '<p class="muted">No plugins installed yet. Visit the Repository page.</p>';
+        .join('') || '<p class="muted">No tools bundled yet.</p>';
 
     render(req, res, {
-      title: 'Plugins',
+      title: 'Tools',
       nav: 'plugins',
-      body: `<h1>Installed plugins</h1><div class="card">${rows}</div>`,
+      body: `
+        ${pageHeader('Tools', 'Enable tools that use your shared Plex connection.')}
+        <div class="panel">${rows}</div>
+      `,
     });
   });
 
@@ -728,9 +771,7 @@ export function createApp(ctx) {
       // ignore
     }
 
-    const fields = schema
-      .map((field) => renderSettingField(field, settings, libraries, shows))
-      .join('');
+    const fieldsHtml = renderGroupedSettings(schema, settings, libraries, shows);
 
     const panel = panels.get(plugin.id);
     let panelHtml = '';
@@ -743,7 +784,9 @@ export function createApp(ctx) {
       typeof mod?.handleRequest === 'function' ||
       typeof mod?.default?.handleRequest === 'function';
     const appLink = hasApp
-      ? `<p style="margin:0.75rem 0"><a class="btn primary" href="/plugins/${encodeURIComponent(plugin.id)}/app">Open plugin</a></p>`
+      ? `<div class="row-actions quiet" style="margin-bottom:1rem">
+          <a class="btn primary" href="/plugins/${encodeURIComponent(plugin.id)}/app">Open tool</a>
+        </div>`
       : '';
 
     let customSettingsHtml = '';
@@ -752,8 +795,7 @@ export function createApp(ctx) {
       'settings.html',
     );
     if (fs.existsSync(settingsHtmlPath)) {
-      customSettingsHtml = `<h2>Plugin UI</h2>
-        <div class="card" style="padding:0;overflow:hidden">
+      customSettingsHtml = `<div class="panel" style="padding:0;overflow:hidden;margin-top:1rem">
           <iframe
             title="Plugin settings"
             src="/plugins/${encodeURIComponent(plugin.id)}/settings-frame"
@@ -767,18 +809,15 @@ export function createApp(ctx) {
       title: plugin.name,
       nav: 'plugins',
       body: `
-        <h1>${escapeHtml(plugin.name)}</h1>
-        <p class="muted">Version ${escapeHtml(plugin.version)}</p>
+        ${pageHeader(plugin.name, plugin.description || `Version ${plugin.version}`)}
         ${appLink}
-        <div class="card">
-          <form method="post" action="/plugins/${encodeURIComponent(plugin.id)}/settings">
-            ${fields || '<p class="muted">No settings defined.</p>'}
-            <div class="row-actions"><button class="primary" type="submit">Save settings</button></div>
-          </form>
-        </div>
+        <form method="post" action="/plugins/${encodeURIComponent(plugin.id)}/settings">
+          ${fieldsHtml}
+          <div class="row-actions"><button class="primary" type="submit">Save settings</button></div>
+        </form>
         ${panelHtml}
         ${customSettingsHtml}
-        <p style="margin-top:1rem"><a href="/plugins">← Back to plugins</a></p>
+        <p style="margin-top:1.25rem"><a href="/plugins">← Back to tools</a></p>
       `,
     });
   });
@@ -826,7 +865,7 @@ export function createApp(ctx) {
   app.post('/plugins/:id/enable', requireAuth, async (req, res) => {
     try {
       await pluginManager.enable(req.params.id);
-      flash(res, 'ok', 'Plugin enabled');
+      flash(res, 'ok', 'Tool enabled');
     } catch (err) {
       flash(res, 'error', err.message);
     }
@@ -836,27 +875,7 @@ export function createApp(ctx) {
   app.post('/plugins/:id/disable', requireAuth, async (req, res) => {
     try {
       await pluginManager.disable(req.params.id);
-      flash(res, 'ok', 'Plugin disabled');
-    } catch (err) {
-      flash(res, 'error', err.message);
-    }
-    res.redirect('/plugins');
-  });
-
-  app.post('/plugins/:id/update', requireAuth, async (req, res) => {
-    try {
-      await pluginManager.update(req.params.id);
-      flash(res, 'ok', 'Plugin updated');
-    } catch (err) {
-      flash(res, 'error', err.message);
-    }
-    res.redirect('/plugins');
-  });
-
-  app.post('/plugins/:id/remove', requireAuth, async (req, res) => {
-    try {
-      await pluginManager.remove(req.params.id);
-      flash(res, 'ok', 'Plugin removed');
+      flash(res, 'ok', 'Tool disabled');
     } catch (err) {
       flash(res, 'error', err.message);
     }
@@ -866,7 +885,7 @@ export function createApp(ctx) {
   app.post('/plugins/:id/panel/:action', requireAuth, async (req, res) => {
     const api = pluginManager.runtime.getApi(req.params.id);
     if (!api) {
-      flash(res, 'error', 'Plugin is not active');
+      flash(res, 'error', 'Tool is not active');
       return res.redirect(`/plugins/${encodeURIComponent(req.params.id)}`);
     }
     const panel = panels.get(req.params.id);
@@ -912,7 +931,7 @@ export function createApp(ctx) {
           ? mod.default.handleRequest
           : null;
     if (!handleRequest) {
-      flash(res, 'error', 'This plugin has no app page');
+      flash(res, 'error', 'This tool has no app page');
       return res.redirect(`/plugins/${encodeURIComponent(plugin.id)}`);
     }
 
@@ -939,7 +958,7 @@ export function createApp(ctx) {
         title,
         nav: 'plugins',
         body: `${body}
-          <p style="margin-top:1rem"><a href="/plugins/${encodeURIComponent(plugin.id)}">← Plugin settings</a></p>`,
+          <p style="margin-top:1.5rem"><a href="/plugins/${encodeURIComponent(plugin.id)}">← Tool settings</a></p>`,
       });
     } catch (err) {
       logger.error(`Plugin app error (${plugin.id}): ${err.message}`, {
@@ -952,116 +971,6 @@ export function createApp(ctx) {
 
   app.get('/plugins/:id/app', requireAuth, handlePluginApp);
   app.post('/plugins/:id/app', requireAuth, handlePluginApp);
-
-  app.get('/repository', requireAuth, async (req, res) => {
-    const catalogueUrl = catalogue.getUrl();
-    const cat = await catalogue.fetch();
-    const installed = new Set(pluginManager.listInstalled().map((p) => p.id));
-    const cards = (cat.plugins || [])
-      .map((p) => {
-        const installedBadge = installed.has(p.id)
-          ? '<span class="badge ok">Installed</span>'
-          : '';
-        return `<div class="card" style="margin-bottom:1rem">
-          <h3>${escapeHtml(p.name)} ${installedBadge}</h3>
-          <p class="muted">${escapeHtml(p.description || '')}</p>
-          <p class="mono muted">${escapeHtml(p.repository || '')}</p>
-          ${
-            p.repository
-              ? `<form method="post" action="/repository/install" onsubmit="return confirm('Install third-party plugin code from GitHub? This runs inside Plex Toolkit.')">
-                  <input type="hidden" name="repository" value="${escapeHtml(p.repository)}" />
-                  <input type="hidden" name="confirm" value="1" />
-                  <button class="primary" type="submit" ${installed.has(p.id) ? 'disabled' : ''}>Install</button>
-                </form>`
-              : '<p class="muted">No repository URL configured for this catalogue entry.</p>'
-          }
-        </div>`;
-      })
-      .join('') || '<p class="muted">No plugins in catalogue.</p>';
-
-    render(req, res, {
-      title: 'Repository',
-      nav: 'repository',
-      body: `
-        <h1>Plugin repository</h1>
-        <div class="warn-box">
-          Plugins are executable code. Only install plugins you trust.
-          Installing from GitHub downloads and runs third-party JavaScript inside this container.
-        </div>
-        <div class="card">
-          <form method="post" action="/repository/catalogue">
-            <label>Catalogue URL (repository.json)</label>
-            <input type="url" name="catalogue_url" value="${escapeHtml(catalogueUrl)}" placeholder="https://raw.githubusercontent.com/.../repository.json" />
-            <div class="row-actions"><button type="submit">Save catalogue URL</button></div>
-          </form>
-          ${cat.error ? `<p class="muted">${escapeHtml(cat.error)}</p>` : `<p class="muted">${escapeHtml(cat.name || 'Catalogue')}</p>`}
-        </div>
-        <h2>Available plugins</h2>
-        ${cards}
-        <h2>Install from GitHub</h2>
-        <div class="card">
-          <form method="post" action="/repository/install" onsubmit="return confirm('Install third-party plugin code from GitHub?')">
-            <label>GitHub repository URL or owner/repo</label>
-            <input type="text" name="repository" placeholder="https://github.com/example/plex-toolkit-netflix-rewatch" required />
-            <label>Branch / ref</label>
-            <input type="text" name="ref" value="main" />
-            <input type="hidden" name="confirm" value="1" />
-            <div class="row-actions"><button class="primary" type="submit">Install</button></div>
-          </form>
-        </div>
-        <h2>Install from local path (dev)</h2>
-        <div class="card">
-          <form method="post" action="/repository/install-local">
-            <label>Absolute or relative path under PLUGIN_LOCAL_ROOTS</label>
-            <input type="text" name="path" placeholder="../plex-toolkit-netflix-rewatch" required />
-            <div class="row-actions"><button type="submit">Install local</button></div>
-          </form>
-        </div>
-      `,
-    });
-  });
-
-  app.post('/repository/catalogue', requireAuth, (req, res) => {
-    catalogue.setUrl(String(req.body.catalogue_url || '').trim());
-    flash(res, 'ok', 'Catalogue URL saved');
-    res.redirect('/repository');
-  });
-
-  app.post('/repository/install', requireAuth, async (req, res) => {
-    if (req.body.confirm !== '1') {
-      flash(res, 'error', 'Installation not confirmed');
-      return res.redirect('/repository');
-    }
-    try {
-      const plugin = await pluginManager.installFromGithub(
-        String(req.body.repository || ''),
-        { ref: String(req.body.ref || 'main'), enable: false },
-      );
-      flash(
-        res,
-        'ok',
-        `Installed ${plugin.name}. Enable it from the Plugins page after reviewing settings.`,
-      );
-      res.redirect(`/plugins/${encodeURIComponent(plugin.id)}`);
-    } catch (err) {
-      flash(res, 'error', err.message);
-      res.redirect('/repository');
-    }
-  });
-
-  app.post('/repository/install-local', requireAuth, async (req, res) => {
-    try {
-      const plugin = await pluginManager.installFromLocal(
-        String(req.body.path || ''),
-        { enable: false },
-      );
-      flash(res, 'ok', `Installed ${plugin.name} from local path`);
-      res.redirect(`/plugins/${encodeURIComponent(plugin.id)}`);
-    } catch (err) {
-      flash(res, 'error', err.message);
-      res.redirect('/repository');
-    }
-  });
 
   // Expose helpers for tests / index
   app.locals.ctx = ctx;
@@ -1100,46 +1009,6 @@ function parseFieldValue(field, body) {
   return body[key] != null ? String(body[key]) : field.default ?? '';
 }
 
-function renderSettingField(field, settings, libraries, shows) {
-  const value =
-    settings[field.key] !== undefined ? settings[field.key] : field.default;
-  const label = `<label>${escapeHtml(field.label || field.key)}</label>`;
-  const help = field.help
-    ? `<p class="muted">${escapeHtml(field.help)}</p>`
-    : '';
-
-  if (field.type === 'boolean') {
-    return `<div>${label}<div class="checks"><label>${checkbox(field.key, Boolean(value))} Yes</label></div>${help}</div>`;
-  }
-  if (field.type === 'number') {
-    return `<div>${label}<input type="number" name="${escapeHtml(field.key)}" value="${escapeHtml(value ?? '')}" ${field.min != null ? `min="${field.min}"` : ''} ${field.max != null ? `max="${field.max}"` : ''} />${help}</div>`;
-  }
-  if (field.type === 'secret') {
-    const isSet = Boolean(settings[`${field.key}__set`]);
-    const placeholder = isSet ? '•••••••• (leave blank to keep)' : '';
-    return `<div>${label}<input type="password" name="${escapeHtml(field.key)}" value="" autocomplete="new-password" placeholder="${escapeHtml(placeholder)}" />${help}</div>`;
-  }
-  if (field.type === 'plexLibraries') {
-    const selected = new Set((value || []).map(String));
-    const checks = libraries
-      .map(
-        (lib) =>
-          `<label><input type="checkbox" name="${escapeHtml(field.key)}" value="${escapeHtml(lib.id)}" ${selected.has(String(lib.id)) ? 'checked' : ''} /> ${escapeHtml(lib.title)}${lib.type ? ` <span class="muted">(${escapeHtml(lib.type)})</span>` : ''}</label>`,
-      )
-      .join('') || '<p class="muted">Connect Plex and ensure libraries exist.</p>';
-    return `<div>${label}<div class="checks">${checks}</div>${help}</div>`;
-  }
-  if (field.type === 'stringList' || field.type === 'plexShows') {
-    const text = Array.isArray(value) ? value.join('\n') : '';
-    const placeholder =
-      field.type === 'plexShows'
-        ? 'One show title per line'
-        : field.placeholder || '';
-    return `<div>${label}<textarea name="${escapeHtml(field.key)}" placeholder="${escapeHtml(placeholder)}">${escapeHtml(text)}</textarea>${help}</div>`;
-  }
-  return `<div>${label}<input type="text" name="${escapeHtml(field.key)}" value="${escapeHtml(value ?? '')}" />${help}</div>`;
-}
-
 function renderPanel(pluginId, panel) {
   const items = (panel.items || [])
     .map((item) => {
@@ -1154,20 +1023,19 @@ function renderPanel(pluginId, panel) {
           </form>`;
         })
         .join(' ');
-      return `<tr>
-        <td>${escapeHtml(item.title)}</td>
-        <td class="muted">${escapeHtml(item.subtitle || '')}</td>
-        <td>${escapeHtml(item.meta || '')}</td>
-        <td>${actions}</td>
-      </tr>`;
+      return `<div class="list-row">
+        <div>
+          <strong>${escapeHtml(item.title)}</strong>
+          ${item.subtitle ? `<div class="muted" style="font-size:0.8rem;margin-top:0.2rem">${escapeHtml(item.subtitle)}</div>` : ''}
+          ${item.meta ? `<div class="muted" style="font-size:0.75rem;margin-top:0.15rem">${escapeHtml(item.meta)}</div>` : ''}
+        </div>
+        <div class="row-actions quiet">${actions}</div>
+      </div>`;
     })
-    .join('') || `<tr><td colspan="4" class="muted">${escapeHtml(panel.empty || 'Nothing yet')}</td></tr>`;
+    .join('') || `<p class="muted">${escapeHtml(panel.empty || 'Nothing yet')}</p>`;
 
-  return `<h2>${escapeHtml(panel.title || 'Plugin panel')}</h2>
-    <div class="card">
-      <table class="table">
-        <thead><tr><th>Item</th><th></th><th></th><th></th></tr></thead>
-        <tbody>${items}</tbody>
-      </table>
+  return `<div class="panel" style="margin-top:1.25rem">
+      <h2 class="panel-title">${escapeHtml(panel.title || 'Plugin panel')}</h2>
+      <div class="list-stack">${items}</div>
     </div>`;
 }

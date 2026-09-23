@@ -88,8 +88,13 @@ test('plugin api denies missing permissions', async () => {
   const logger = createLogger(path.join(dir, 'logs'), db);
   const panels = new Map();
   const scheduler = new Scheduler(logger);
+  const refreshed = [];
   const plex = {
     getLibraries: async () => [{ id: '1' }],
+    refreshLibrary: async (sectionId) => {
+      refreshed.push(String(sectionId));
+      return { ok: true, sectionId: String(sectionId) };
+    },
     markWatched: async () => {},
   };
   const api = createPluginApi({
@@ -106,8 +111,24 @@ test('plugin api denies missing permissions', async () => {
 
   const libs = await api.plex.getLibraries();
   assert.equal(libs.length, 1);
+  await assert.rejects(() => api.plex.refreshLibrary('3'), /lacks permission/);
   await assert.rejects(() => api.plex.markWatched('1'), /lacks permission/);
   assert.throws(() => api.events.on('playback.started', () => {}), /lacks permission/);
+
+  const apiRefresh = createPluginApi({
+    pluginId: 'test-refresh',
+    permissions: ['plex.refresh'],
+    plex,
+    bus,
+    db,
+    logger,
+    getConfiguredAccountId: () => '1',
+    panels,
+    scheduler,
+  });
+  const refresh = await apiRefresh.plex.refreshLibrary('3');
+  assert.equal(refresh.ok, true);
+  assert.deepEqual(refreshed, ['3']);
   db.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });

@@ -1,0 +1,151 @@
+{
+  "id": "plex-notifier",
+  "name": "Plex Notifier",
+  "version": "1.2.0",
+  "apiVersion": 1,
+  "author": "Thunderhat",
+  "description": "Rank most-watched actors and directors from your Plex library, search people, track favourites, and email when they (or watchlist titles) appear on Freeview.",
+  "entry": "plugin.js",
+  "permissions": [
+    "plex.read",
+    "plex.discover",
+    "plex.dvr",
+    "storage",
+    "scheduler",
+    "mail.send"
+  ],
+  "settingsSchema": [
+    {
+      "key": "enabled",
+      "type": "boolean",
+      "label": "Enabled",
+      "default": true,
+      "section": "What to watch",
+      "help": "Master switch for scheduled history refresh, Freeview matching, and digests."
+    },
+    {
+      "key": "libraries",
+      "type": "plexLibraries",
+      "label": "Libraries to scan",
+      "default": [],
+      "section": "What to watch",
+      "help": "Movie and TV libraries included in watch-history rankings and library ownership checks."
+    },
+    {
+      "key": "matchMovies",
+      "type": "boolean",
+      "label": "Match movies",
+      "default": true,
+      "section": "What to watch",
+      "help": "Include movie airings and movie watchlist titles."
+    },
+    {
+      "key": "matchTv",
+      "type": "boolean",
+      "label": "Match TV",
+      "default": true,
+      "section": "What to watch",
+      "help": "Include TV airings and TV watchlist titles."
+    },
+    {
+      "key": "notifyWindowDays",
+      "type": "number",
+      "label": "Notify window (days)",
+      "default": 7,
+      "min": 1,
+      "max": 30,
+      "section": "What to watch"
+    },
+    {
+      "key": "preferredRegion",
+      "type": "string",
+      "label": "Preferred Freeview region",
+      "default": "",
+      "section": "What to watch",
+      "help": "e.g. West Midlands. Used to pick the primary channel when collapsing regionals. Leave blank to detect from Plex DVR channels."
+    },
+    {
+      "key": "autoRecord",
+      "type": "boolean",
+      "label": "Auto-schedule DVR recordings",
+      "default": false,
+      "section": "Recordings",
+      "help": "When a matched movie is not in your library, create a one-shot Plex DVR subscription. Requires Plex Pass and a configured DVR."
+    },
+    {
+      "key": "recordLibrary",
+      "type": "plexLibraries",
+      "label": "DVR record library",
+      "default": [],
+      "section": "Recordings",
+      "help": "Movie library section where DVR recordings are saved (first selected is used)."
+    },
+    {
+      "key": "tmdbApiKey",
+      "type": "secret",
+      "label": "TMDB API key",
+      "section": "People",
+      "help": "Required to search and match tracked actors/directors against Freeview. Get a free key from themoviedb.org."
+    },
+    {
+      "key": "smtpHost",
+      "type": "string",
+      "label": "SMTP host",
+      "default": "",
+      "section": "Email",
+      "pairWith": "smtpPort"
+    },
+    {
+      "key": "smtpPort",
+      "type": "number",
+      "label": "SMTP port",
+      "default": 587,
+      "min": 1,
+      "max": 65535,
+      "section": "Email"
+    },
+    {
+      "key": "smtpUser",
+      "type": "string",
+      "label": "SMTP username",
+      "default": "",
+      "section": "Email"
+    },
+    {
+      "key": "smtpPassword",
+      "type": "secret",
+      "label": "SMTP password",
+      "section": "Email",
+      "help": "Leave blank when saving to keep the current password."
+    },
+    {
+      "key": "smtpFrom",
+      "type": "string",
+      "label": "From address",
+      "default": "",
+      "section": "Email",
+      "pairWith": "smtpTo"
+    },
+    {
+      "key": "smtpTo",
+      "type": "string",
+      "label": "To address",
+      "default": "",
+      "section": "Email"
+    },
+    {
+      "key": "epgUrl",
+      "type": "string",
+      "label": "Freeview EPG URL",
+      "default": "https://raw.githubusercontent.com/dp247/Freeview-EPG/master/epg.xml",
+      "advanced": true
+    },
+    {
+      "key": "tmdbBaseUrl",
+      "type": "string",
+      "label": "TMDB API base URL",
+      "default": "https://api.themoviedb.org/3",
+      "advanced": true
+    }
+  ]
+}

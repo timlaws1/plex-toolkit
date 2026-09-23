@@ -7,10 +7,14 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY package.json ./
-RUN npm install --omit=dev
+RUN npm install
 
 COPY src ./src
 COPY docs ./docs
+COPY tools ./tools
+
+RUN npm run css \
+  && npm prune --omit=dev
 
 ENV NODE_ENV=production
 ENV PORT=8787

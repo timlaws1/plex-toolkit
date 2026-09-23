@@ -1,0 +1,39 @@
+{
+  "id": "letterboxd-watchlist",
+  "name": "Letterboxd Watchlist Sync",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "author": "Thunderhat",
+  "description": "Copy films from a public Letterboxd watchlist into your Plex watchlist on a schedule.",
+  "entry": "plugin.js",
+  "permissions": [
+    "plex.discover",
+    "storage",
+    "scheduler"
+  ],
+  "settingsSchema": [
+    {
+      "key": "enabled",
+      "type": "boolean",
+      "label": "Enabled",
+      "default": true,
+      "help": "Master switch for scheduled Letterboxd → Plex sync."
+    },
+    {
+      "key": "letterboxdUsername",
+      "type": "string",
+      "label": "Letterboxd username",
+      "default": "",
+      "help": "Public profile username. Private watchlists cannot be read."
+    },
+    {
+      "key": "intervalHours",
+      "type": "number",
+      "label": "Sync interval (hours)",
+      "default": 12,
+      "min": 1,
+      "max": 168,
+      "help": "How often to check Letterboxd for new watchlist titles."
+    }
+  ]
+}

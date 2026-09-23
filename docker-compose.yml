@@ -5,14 +5,13 @@ services:
     ports:
       - "8787:8787"
     environment:
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
+      # Required: set in .env — do not use a weak or default password
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
       PORT: 8787
       DATA_DIR: /data
       # Optional stable OAuth client id (otherwise generated under /data/config/client.id)
       PLEX_CLIENT_ID: ${PLEX_CLIENT_ID:-}
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8787}
-      CATALOGUE_URL: ${CATALOGUE_URL:-}
-      # PLUGIN_LOCAL_ROOTS only useful when mounting source for development
     volumes:
       - ./data:/data
     extra_hosts:

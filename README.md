@@ -1,15 +1,18 @@
 # Plex Toolkit
 
-Lightweight self-hosted plugin host for Plex Media Server.
+Self-hosted tools for your Plex Media Server. Run one Docker container, connect your Plex account, and use the included tools.
 
-Install one Docker container, connect it to your Plex server, then install utilities as plugins. The first official plugin is **Netflix Rewatch**.
+## Included tools
+
+- **Netflix Rewatch** — Netflix-style Continue Watching when you rewatch episodes
+- **Plex Notifier** — track favourite people and get Freeview alerts
+- **Letterboxd Watchlist Sync** — copy a public Letterboxd watchlist into your Plex watchlist
 
 ## Quick start
 
 ```bash
-cd plex-toolkit
 cp .env.example .env
-# Edit .env and set ADMIN_PASSWORD
+# Set a strong ADMIN_PASSWORD in .env
 
 docker compose up -d --build
 ```
@@ -24,21 +27,42 @@ Open [http://localhost:8787](http://localhost:8787) and sign in with `ADMIN_PASS
 4. Return and click **I've authorized — continue**.
 5. If you have multiple servers, choose which one to use.
 
-The access token is encrypted at rest under `./data`. Server URLs are discovered from your Plex account; you can override the URL only if discovery cannot reach the server.
+Your Plex access token is encrypted at rest under `./data`.
 
-### Persistent data
+### Updating
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Or rebuild from source:
+
+```bash
+docker compose up -d --build
+```
+
+On every start the host recopies bundled tools from the image into `./data` and keeps your settings.
+
+## Security
+
+- Set a strong unique `ADMIN_PASSWORD`. Do not leave the example value.
+- Keep port `8787` on your LAN (or behind a reverse proxy with TLS). Do not publish it to the open internet without protection.
+- Treat `./data` as sensitive: encryption key, encrypted Plex token, SQLite, and tool settings.
+- `POST /webhooks/plex` is unauthenticated by design so Plex can call it. Only enable a public webhook URL if you understand that risk.
+- Tools run in-process with declared permissions. Only the tools shipped in the image are loaded.
+
+## Persistent data
 
 ```text
 data/
-  config/      encryption key
+  config/     encryption key
   database/   SQLite
-  plugins/    installed plugins
+  plugins/    runtime copies of bundled tools (overwritten from the image on boot)
   logs/
 ```
 
-Container recreations keep this volume.
-
-### Optional Plex webhook
+## Optional Plex webhook
 
 Set `PUBLIC_URL` to a URL your Plex server can reach, then add a webhook:
 
@@ -50,14 +74,10 @@ Playback events also work over the Plex websocket without Plex Pass. Webhooks ad
 
 ```bash
 cp .env.example .env
-# Set ADMIN_PASSWORD and PLUGIN_LOCAL_ROOTS to the parent Thunderhat folder
+# Set ADMIN_PASSWORD
 npm install
 npm start
 ```
-
-Install the sibling Netflix Rewatch plugin from **Repository → Install from local path** using `../plex-toolkit-netflix-rewatch` (must be under `PLUGIN_LOCAL_ROOTS`).
-
-Install the Plex Notifier plugin from `../plex-notifier/plugin` the same way.
 
 ```bash
 npm test
@@ -72,12 +92,8 @@ npm test
 | `DATA_DIR` | Default `./data` (`/data` in Docker) |
 | `PLEX_CLIENT_ID` | Optional stable Plex app client id; otherwise generated in `data/config/client.id` |
 | `PUBLIC_URL` | Base URL for webhook display |
-| `CATALOGUE_URL` | URL to a `repository.json` catalogue |
-| `PLUGIN_LOCAL_ROOTS` | Semicolon-separated allowlist for local plugin installs |
 | `SECRET_KEY` | Optional 64-char hex key; otherwise generated in `data/config/secret.key` |
 
-## Architecture
+## Tool API
 
-See [docs/plugin-api.md](docs/plugin-api.md) for the stable Plugin API.
-
-Plugins are never hard-coded into the host. They are installed from GitHub or an allowlisted local path, validated via `plugin.json`, and activated through a permission-checked facade.
+See [docs/plugin-api.md](docs/plugin-api.md) for the host API used by bundled tools.
