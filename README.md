@@ -5,7 +5,7 @@ Self-hosted tools for your Plex Media Server. Run one Docker container, connect 
 ## Included tools
 
 - **Netflix Rewatch** — Netflix-style Continue Watching when you rewatch episodes
-- **Plex Notifier** — track favourite people and get Freeview alerts
+- **Plex Notifier** — track watchlist and favourite people and get Freeview/Live TV alerts
 - **Letterboxd Watchlist Sync** — copy a public Letterboxd watchlist into your Plex watchlist
 
 ## Quick start
