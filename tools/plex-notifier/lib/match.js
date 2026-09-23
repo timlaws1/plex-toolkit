@@ -228,6 +228,7 @@ export function findWatchlistHit(airing, watchlistItems, typeOpts = {}) {
     keys: best.keys || [],
     tmdbId: best.tmdbId ?? null,
     imdbId: best.imdbId ?? null,
+    guids: Array.isArray(best.guids) ? best.guids : [],
     personNames: [],
     fromWatchlist: true,
   };
@@ -469,6 +470,8 @@ function recordLibrarySectionId(settings) {
 
 /**
  * Schedule one-shot Plex DVR recordings for matched movies.
+ * Uses Plex subscription templates when a Plex/Discover guid is available;
+ * falls back to title+year with the DVR mediaProviderID (never tmdb:// guids).
  */
 export async function scheduleRecordings(ctx, matches, settings) {
   const sectionId = recordLibrarySectionId(settings);
@@ -476,7 +479,7 @@ export async function scheduleRecordings(ctx, matches, settings) {
     return {
       recorded: 0,
       skipped: 0,
-      errors: ['No record library configured'],
+      errors: ['No record library configured (set DVR record library in settings)'],
     };
   }
   if (!ctx.plex?.createSubscription) {
@@ -485,6 +488,31 @@ export async function scheduleRecordings(ctx, matches, settings) {
       skipped: 0,
       errors: ['Plex DVR API not available'],
     };
+  }
+
+  let mediaProviderID = null;
+  try {
+    mediaProviderID = ctx.plex.getDvrMediaProviderId
+      ? await ctx.plex.getDvrMediaProviderId()
+      : null;
+  } catch (err) {
+    ctx.log?.warn?.(`Could not resolve DVR media provider: ${err.message}`);
+  }
+
+  try {
+    const libs = await ctx.plex.getLibraries();
+    const section = (libs || []).find((l) => String(l.id) === String(sectionId));
+    if (section && String(section.type || '').toLowerCase() !== 'movie') {
+      return {
+        recorded: 0,
+        skipped: 0,
+        errors: [
+          `Record library must be a movie library (section ${sectionId} is "${section.type}")`,
+        ],
+      };
+    }
+  } catch (err) {
+    ctx.log?.warn?.(`Could not verify record library type: ${err.message}`);
   }
 
   const recordedKeys = new Set(ctx.storage.get(RECORDED_KEY) || []);
@@ -524,21 +552,11 @@ export async function scheduleRecordings(ctx, matches, settings) {
       continue;
     }
 
-    const hints = {
-      title,
-      type: 1,
-    };
-    if (match.title.year) hints.year = match.title.year;
-    if (match.title.tmdbId) {
-      hints.guid = `tmdb://movie/${match.title.tmdbId}`;
-    }
-
     try {
-      await ctx.plex.createSubscription({
-        type: 1,
-        targetLibrarySectionID: Number(sectionId),
-        hints,
-        prefs: { oneShot: 1 },
+      await scheduleOneMovieRecording(ctx, {
+        match,
+        sectionId,
+        mediaProviderID,
       });
       recordedKeys.add(notifyKey);
       existingTitles.add(normalizeTitle(title));
@@ -553,6 +571,114 @@ export async function scheduleRecordings(ctx, matches, settings) {
 
   ctx.storage.set(RECORDED_KEY, [...recordedKeys]);
   return { recorded, skipped, errors };
+}
+
+/**
+ * @param {any} ctx
+ * @param {{ match: any, sectionId: string, mediaProviderID: string|null }} opts
+ */
+async function scheduleOneMovieRecording(ctx, { match, sectionId, mediaProviderID }) {
+  const title = match.title.title;
+  const year = match.title.year != null ? Number(match.title.year) : null;
+  const plexGuid = await resolvePlexMovieGuid(ctx, match);
+
+  if (plexGuid && ctx.plex.getSubscriptionTemplates) {
+    try {
+      const templates = await ctx.plex.getSubscriptionTemplates(plexGuid);
+      const oneShot =
+        templates.find((t) => /this (movie|airing|episode)/i.test(t.title || '')) ||
+        templates.find((t) => t.selected) ||
+        templates[0];
+      if (oneShot?.parameters && ctx.plex.createSubscriptionFromTemplate) {
+        return ctx.plex.createSubscriptionFromTemplate(oneShot.parameters, {
+          targetLibrarySectionID: Number(sectionId),
+          prefs: { oneShot: 1 },
+        });
+      }
+    } catch (err) {
+      ctx.log?.warn?.(
+        `Subscription template failed for ${title} (${plexGuid}): ${err.message}`,
+      );
+    }
+  }
+
+  const hints = {
+    title,
+    type: 1,
+  };
+  if (year) hints.year = year;
+  // Only pass Plex/EPG guids — tmdb:// causes PMS 400 Bad Request
+  if (plexGuid) {
+    hints.guid = plexGuid;
+  }
+
+  const params = {
+    libraryType: 1,
+  };
+  if (mediaProviderID) params.mediaProviderID = mediaProviderID;
+  if (match.airing?.startsAt) {
+    const ts = Math.floor(new Date(match.airing.startsAt).getTime() / 1000);
+    if (Number.isFinite(ts) && ts > 0) {
+      params.airingTimes = String(ts);
+    }
+  }
+
+  return ctx.plex.createSubscription({
+    type: 1,
+    targetLibrarySectionID: Number(sectionId),
+    hints,
+    prefs: { oneShot: 1 },
+    params,
+  });
+}
+
+/**
+ * Prefer a Plex Discover guid for DVR matching (never tmdb://).
+ */
+async function resolvePlexMovieGuid(ctx, match) {
+  const fromTitle = Array.isArray(match.title?.guids) ? match.title.guids : [];
+  const plexGuid = fromTitle.find(
+    (g) => typeof g === 'string' && /^plex:\/\//i.test(g),
+  );
+  if (plexGuid) return plexGuid;
+
+  if (!ctx.plex?.searchDiscover) return null;
+  const year = match.title?.year;
+  const query =
+    year != null ? `${match.title.title} ${year}` : match.title.title;
+  try {
+    const results = await ctx.plex.searchDiscover(query, { limit: 10 });
+    const movies = (results || []).filter((r) => r.type === 'movie');
+    const want = String(match.title.title || '')
+      .trim()
+      .toLowerCase();
+    const hit =
+      movies.find(
+        (r) =>
+          String(r.title || '')
+            .trim()
+            .toLowerCase() === want &&
+          (year == null || Number(r.year) === Number(year)),
+      ) ||
+      movies.find(
+        (r) =>
+          String(r.title || '')
+            .trim()
+            .toLowerCase() === want,
+      ) ||
+      movies[0];
+    if (!hit) return null;
+    const guids = Array.isArray(hit.guids) ? hit.guids : [];
+    const g = guids.find((x) => typeof x === 'string' && /^plex:\/\//i.test(x));
+    if (g) return g;
+    if (hit.guid && /^plex:\/\//i.test(hit.guid)) return hit.guid;
+    if (hit.ratingKey) return `plex://movie/${hit.ratingKey}`;
+  } catch (err) {
+    ctx.log?.warn?.(
+      `Discover lookup for DVR failed (${match.title?.title}): ${err.message}`,
+    );
+  }
+  return null;
 }
 
 /**

@@ -538,3 +538,64 @@ test('createTmdbClient maps search and credits responses', async () => {
     globalThis.fetch = original;
   }
 });
+
+test('scheduleRecordings uses Plex guid and mediaProviderID, not tmdb://', async () => {
+  const { scheduleRecordings } = await import('../lib/match.js');
+  const calls = [];
+  const ctx = {
+    storage: {
+      get: () => [],
+      set: () => {},
+    },
+    log: { info() {}, warn() {} },
+    plex: {
+      async getLibraries() {
+        return [{ id: '7', type: 'movie', title: 'Movies' }];
+      },
+      async getSubscriptions() {
+        return [];
+      },
+      async getDvrMediaProviderId() {
+        return '13';
+      },
+      async searchDiscover() {
+        return [
+          {
+            type: 'movie',
+            title: 'Rocky II',
+            year: 1979,
+            ratingKey: 'abc',
+            guid: 'plex://movie/5d7768294de0ee001fcc8f5b',
+            guids: ['plex://movie/5d7768294de0ee001fcc8f5b'],
+          },
+        ];
+      },
+      async getSubscriptionTemplates() {
+        return [];
+      },
+      async createSubscription(opts) {
+        calls.push(opts);
+        return { key: '1' };
+      },
+    },
+  };
+
+  const result = await scheduleRecordings(
+    ctx,
+    [
+      {
+        notifyKey: 'rocky-ii',
+        title: { title: 'Rocky II', year: 1979, mediaType: 'movie', tmdbId: 123 },
+        airing: { startsAt: '2026-09-24T20:00:00.000Z', channel: 'Film4' },
+      },
+    ],
+    { recordLibrary: ['7'], autoRecord: true },
+  );
+
+  assert.equal(result.recorded, 1);
+  assert.equal(result.errors.length, 0);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].params.mediaProviderID, '13');
+  assert.equal(calls[0].hints.guid, 'plex://movie/5d7768294de0ee001fcc8f5b');
+  assert.ok(!String(calls[0].hints.guid || '').startsWith('tmdb:'));
+});

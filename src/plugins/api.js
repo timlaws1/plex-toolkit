@@ -143,9 +143,25 @@ export function createPluginApi({
         requirePerm('plex.dvr');
         return plex.getSubscriptions(opts);
       },
+      async getMediaProviders() {
+        requirePerm('plex.dvr');
+        return plex.getMediaProviders();
+      },
+      async getDvrMediaProviderId() {
+        requirePerm('plex.dvr');
+        return plex.getDvrMediaProviderId();
+      },
+      async getSubscriptionTemplates(guid) {
+        requirePerm('plex.dvr');
+        return plex.getSubscriptionTemplates(guid);
+      },
       async createSubscription(options) {
         requirePerm('plex.dvr');
         return plex.createSubscription(options);
+      },
+      async createSubscriptionFromTemplate(parameters, opts) {
+        requirePerm('plex.dvr');
+        return plex.createSubscriptionFromTemplate(parameters, opts);
       },
     },
     events: {

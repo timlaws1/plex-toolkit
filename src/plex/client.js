@@ -687,11 +687,120 @@ export class PlexClient {
   }
 
   /**
+   * List media providers (includes DVR / EPG providers used for subscriptions).
+   */
+  async getMediaProviders() {
+    const data = await this.request('GET', '/media/providers');
+    const container = data?.MediaContainer || data || {};
+    return asList(container.MediaProvider).map((p) => ({
+      id: p.id != null ? String(p.id) : null,
+      identifier: p.identifier || null,
+      title: p.title || null,
+      protocols: asList(p.Protocol).map((x) => x.protocol || x),
+      features: asList(p.Feature).map((f) => ({
+        type: f.type || null,
+        key: f.key || null,
+        flavor: f.flavor || null,
+      })),
+    }));
+  }
+
+  /**
+   * Prefer an EPG/Live TV provider that supports recording subscriptions.
+   */
+  async getDvrMediaProviderId() {
+    const providers = await this.getMediaProviders();
+    for (const p of providers) {
+      const hasSubscribe = (p.features || []).some(
+        (f) =>
+          String(f.type || '').toLowerCase() === 'subscribe' ||
+          String(f.flavor || '').toLowerCase() === 'record',
+      );
+      const looksEpg =
+        /epg|livetv|dvr|tv\.plex\.providers\.epg/i.test(
+          String(p.identifier || ''),
+        ) || /epg|live\s*tv|dvr/i.test(String(p.title || ''));
+      if (p.id && (hasSubscribe || looksEpg)) {
+        return String(p.id);
+      }
+    }
+    const first = providers.find((p) => p.id);
+    return first?.id ? String(first.id) : null;
+  }
+
+  /**
+   * Templates for recording a piece of media (one-shot, season, series, …).
+   * @param {string} guid
+   */
+  async getSubscriptionTemplates(guid) {
+    const g = String(guid || '').trim();
+    if (!g) throw new Error('guid is required for subscription template');
+    const data = await this.request('GET', '/media/subscriptions/template', {
+      query: { guid: g },
+    });
+    const container = data?.MediaContainer || data || {};
+    const groups = asList(container.SubscriptionTemplate);
+    const out = [];
+    for (const group of groups) {
+      for (const sub of asList(group.MediaSubscription)) {
+        out.push({
+          title: sub.title || null,
+          type: sub.type != null ? Number(sub.type) : null,
+          selected: Boolean(sub.selected),
+          targetLibrarySectionID:
+            sub.targetLibrarySectionID != null
+              ? Number(sub.targetLibrarySectionID)
+              : null,
+          parameters: sub.parameters || '',
+          airingsType: sub.airingsType || null,
+        });
+      }
+    }
+    return out;
+  }
+
+  /**
    * Create a DVR / media subscription.
    * Pass nested objects for hints/prefs/params; they are flattened to bracket keys.
+   * Prefer getSubscriptionTemplates() + createSubscriptionFromTemplate() for recordings.
    */
   async createSubscription(options = {}) {
     const query = this.constructor.flattenQuery(options);
+    const data = await this.request('POST', '/media/subscriptions', { query });
+    const container = data?.MediaContainer || data || {};
+    const sub = asList(container.MediaSubscription)[0];
+    if (!sub) return { key: null, raw: data };
+    return {
+      key: sub.key != null ? String(sub.key) : null,
+      type: sub.type != null ? Number(sub.type) : null,
+      title: sub.title || null,
+      targetLibrarySectionID:
+        sub.targetLibrarySectionID != null
+          ? Number(sub.targetLibrarySectionID)
+          : null,
+      raw: sub,
+    };
+  }
+
+  /**
+   * Create a subscription using a template `parameters` query string from
+   * getSubscriptionTemplates(), merged with target library / prefs overrides.
+   */
+  async createSubscriptionFromTemplate(
+    parameters,
+    { targetLibrarySectionID, prefs = {} } = {},
+  ) {
+    const query = parseQueryString(parameters);
+    if (targetLibrarySectionID != null) {
+      query.targetLibrarySectionID = String(targetLibrarySectionID);
+    }
+    for (const [k, v] of Object.entries(prefs || {})) {
+      if (v == null) continue;
+      query[`prefs[${k}]`] = v;
+    }
+    if (query['prefs[oneShot]'] == null) {
+      query['prefs[oneShot]'] = '1';
+    }
     const data = await this.request('POST', '/media/subscriptions', { query });
     const container = data?.MediaContainer || data || {};
     const sub = asList(container.MediaSubscription)[0];
@@ -714,6 +823,17 @@ export class PlexClient {
     const proto = u.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${proto}//${u.host}/:/websockets/notifications?X-Plex-Token=${encodeURIComponent(this.token)}`;
   }
+}
+
+function parseQueryString(raw) {
+  const out = {};
+  const text = String(raw || '').trim();
+  if (!text) return out;
+  const params = new URLSearchParams(text);
+  for (const [k, v] of params.entries()) {
+    out[k] = v;
+  }
+  return out;
 }
 
 export {

@@ -1,7 +1,7 @@
 {
   "id": "plex-notifier",
   "name": "Plex Notifier",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "apiVersion": 1,
   "author": "Thunderhat",
   "description": "Rank most-watched actors and directors from your Plex library, search people, track favourites, and email when they (or watchlist titles) appear on Freeview.",

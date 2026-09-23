@@ -110,7 +110,11 @@ The host passes a facade only. Tools do not receive the Plex token, filesystem a
 - `ctx.plex.getDvrs()` — configured DVRs (`plex.dvr`)
 - `ctx.plex.getDvrChannels()` — DVR channel titles for regional preference (`plex.dvr`)
 - `ctx.plex.getSubscriptions()` — media/DVR subscriptions (`plex.dvr`)
+- `ctx.plex.getMediaProviders()` — media providers including EPG/DVR (`plex.dvr`)
+- `ctx.plex.getDvrMediaProviderId()` — preferred EPG provider id for recordings (`plex.dvr`)
+- `ctx.plex.getSubscriptionTemplates(guid)` — recording templates for a Plex guid (`plex.dvr`)
 - `ctx.plex.createSubscription(options)` — schedule a recording / subscription (`plex.dvr`); supports nested `hints` / `prefs` / `params`
+- `ctx.plex.createSubscriptionFromTemplate(parameters, { targetLibrarySectionID, prefs })` — create from a template query string (`plex.dvr`)
 
 ### Events (`events.subscribe`)
 
