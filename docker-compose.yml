@@ -14,11 +14,11 @@ services:
       PLEX_CLIENT_ID: ${PLEX_CLIENT_ID:-}
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8787}
       # Restrict fs.read tools (Preroll) to mounted preroll roots — see README “Preroll Scheduler”
-      MEDIA_ROOTS: /prerolls
+      MEDIA_ROOTS: ${MEDIA_ROOTS:-/prerolls}
     volumes:
       - ./data:/data
       # Preroll media for Preroll Scheduler (container path /prerolls — not the host path)
-      - ./prerolls:/prerolls
+      - ${PREROLL_DIR:-./prerolls}:/prerolls
       # Optional: lets Home → Update replace this container.
       # DOCKER_GID is the group that owns /var/run/docker.sock on the host.
       - /var/run/docker.sock:/var/run/docker.sock

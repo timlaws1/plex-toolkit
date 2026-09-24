@@ -137,13 +137,11 @@ The tool writes selected paths to Plex’s `CinemaTrailersPrerollID` preference 
 
 Cinema Trailers must be enabled on the Plex client and on the movie library.
 
-Example compose additions:
+Example `.env` additions:
 
-```yaml
-environment:
-  MEDIA_ROOTS: /prerolls
-volumes:
-  - ./prerolls:/prerolls
+```bash
+PREROLL_DIR=/path/to/your/prerolls
+MEDIA_ROOTS=/prerolls
 ```
 
 Then use `/prerolls/idents` (etc.) as bucket folder paths. If Plex sees those files as `D:\Plex\prerolls\idents\…`, set Toolkit prefix `/prerolls` and Plex prefix `D:\Plex\prerolls` in tool Settings. When `MEDIA_ROOTS` is unset (local `npm run dev`), bucket paths are unrestricted.
