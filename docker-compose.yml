@@ -4,11 +4,11 @@ services:
     build: .
     container_name: plex-toolkit
     ports:
-      - "8787:8787"
+      - "${PORT:-8787}:${PORT:-8787}"
     environment:
       # Required: set in .env — do not use a weak or default password
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
-      PORT: 8787
+      PORT: ${PORT:-8787}
       DATA_DIR: /data
       # Optional stable OAuth client id (otherwise generated under /data/config/client.id)
       PLEX_CLIENT_ID: ${PLEX_CLIENT_ID:-}
