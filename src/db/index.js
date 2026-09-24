@@ -99,6 +99,89 @@ ALTER TABLE plex_servers ADD COLUMN account_username TEXT;
 ALTER TABLE plex_servers ADD COLUMN connection_uris TEXT;
 `,
   },
+  {
+    id: 3,
+    sql: `
+CREATE TABLE IF NOT EXISTS preroll_buckets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  description TEXT,
+  folder_path TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS preroll_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  bucket_id INTEGER NOT NULL,
+  filename TEXT NOT NULL,
+  relative_path TEXT NOT NULL,
+  size_bytes INTEGER,
+  mtime_ms INTEGER,
+  duration_ms INTEGER,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  missing INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (bucket_id) REFERENCES preroll_buckets(id) ON DELETE CASCADE,
+  UNIQUE (bucket_id, relative_path)
+);
+
+CREATE TABLE IF NOT EXISTS preroll_schedules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  start_date TEXT,
+  end_date TEXT,
+  start_time TEXT,
+  end_time TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  selection_mode TEXT NOT NULL DEFAULT 'random',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS preroll_steps (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  schedule_id INTEGER NOT NULL,
+  position INTEGER NOT NULL,
+  bucket_id INTEGER NOT NULL,
+  count INTEGER NOT NULL DEFAULT 1,
+  FOREIGN KEY (schedule_id) REFERENCES preroll_schedules(id) ON DELETE CASCADE,
+  FOREIGN KEY (bucket_id) REFERENCES preroll_buckets(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS preroll_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  bucket_id INTEGER NOT NULL,
+  item_id INTEGER NOT NULL,
+  used_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (bucket_id) REFERENCES preroll_buckets(id) ON DELETE CASCADE,
+  FOREIGN KEY (item_id) REFERENCES preroll_items(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS preroll_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  schedule_id INTEGER,
+  generated_at TEXT,
+  plex_value TEXT,
+  items_json TEXT,
+  warning TEXT,
+  active_schedule_id INTEGER,
+  FOREIGN KEY (schedule_id) REFERENCES preroll_schedules(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_preroll_items_bucket ON preroll_items(bucket_id);
+CREATE INDEX IF NOT EXISTS idx_preroll_steps_schedule ON preroll_steps(schedule_id, position);
+CREATE INDEX IF NOT EXISTS idx_preroll_history_bucket ON preroll_history(bucket_id);
+`,
+  },
+  {
+    id: 4,
+    sql: `
+ALTER TABLE preroll_schedules ADD COLUMN repeat_yearly INTEGER NOT NULL DEFAULT 0;
+`,
+  },
 ];
 
 export function openDatabase(dbPath) {

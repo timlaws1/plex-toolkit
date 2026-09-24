@@ -1,6 +1,6 @@
 # Plex Toolkit Tool API (v1)
 
-Bundled tools live under `tools/` in the image and are copied into `data/plugins` on every boot.
+Bundled tools live under `tools/` in the image. The Tools page catalog lists them; Install copies one into `data/plugins` (disabled until enabled). On every boot the host refreshes code only for tools already installed from that catalog.
 
 ## Package layout
 
@@ -28,12 +28,15 @@ my-tool/
     "plex.watch_state",
     "plex.dvr",
     "plex.refresh",
+    "plex.prefs",
     "events.subscribe",
     "storage",
     "scheduler",
     "changes",
     "mail.send",
-    "net.fetch"
+    "net.fetch",
+    "fs.read",
+    "sql.preroll"
   ],
   "settingsSchema": [
     {
@@ -76,7 +79,7 @@ export async function handleRequest(ctx, req) {
 }
 ```
 
-`handleRequest` may return `{ title, body }`, `{ redirect, message, flash }`, or throw.
+`handleRequest` may return `{ title, body }`, `{ redirect, message, flash }`, `{ file, contentType, size }` (authenticated Range streaming), `{ status: 404, body }`, or throw.
 
 ## Context (`ctx`)
 
@@ -116,6 +119,27 @@ The host passes a facade only. Tools do not receive the Plex token, filesystem a
 - `ctx.plex.getSubscriptionTemplates(guid)` — recording templates for a Plex guid (`plex.dvr`)
 - `ctx.plex.createSubscription(options)` — schedule a recording / subscription (`plex.dvr`); supports nested `hints` / `prefs` / `params`
 - `ctx.plex.createSubscriptionFromTemplate(parameters, { targetLibrarySectionID, prefs })` — create from a template query string (`plex.dvr`)
+- `ctx.plex.getPreference(id)` — read a PMS preference (`plex.prefs`)
+- `ctx.plex.setPreference(id, value)` — set a PMS preference (`plex.prefs`)
+- `ctx.plex.isConfigured()` — whether a server URL and token are set
+
+### Filesystem (`fs.read`)
+
+Scoped to `MEDIA_ROOTS` when that env var is set (semicolon-separated absolute paths). When unset, paths are unrestricted (local development).
+
+- `ctx.fs.listVideos(dir)` — recursive video file listing (relative paths, size, mtime, optional MP4 duration)
+- `ctx.fs.stat(absPath)`
+- `ctx.fs.exists(absPath)`
+- `ctx.fs.createReadStream(absPath, opts)`
+- `ctx.fs.readMp4DurationMs(absPath)`
+
+### SQL (`sql.preroll`)
+
+Prepared statements against the host SQLite database, limited to preroll tables: `preroll_buckets`, `preroll_items`, `preroll_schedules`, `preroll_steps`, `preroll_history`, `preroll_state`.
+
+- `ctx.sql.prepare(sql)`
+- `ctx.sql.exec(sql)`
+- `ctx.sql.transaction(fn)`
 
 ### Events (`events.subscribe`)
 
@@ -189,7 +213,7 @@ ctx.panels.add({
 ## Security notes (v1)
 
 - Manifest validation and permission checks are enforced
-- Official tools ship under `tools/` and are recopied into `data/plugins` on every boot
+- Official tools ship under `tools/`; installed copies in `data/plugins` are refreshed from the image on every boot
 - Library refresh requires `plex.refresh` (not `plex.read`)
 - Runtime is in-process today; `PluginRuntime` is an interface so a worker/process sandbox can replace it later
 - Do not assume Node `vm` isolation

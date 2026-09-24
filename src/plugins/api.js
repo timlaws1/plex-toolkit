@@ -1,5 +1,9 @@
 import { sendMail } from '../mail/smtp.js';
 import { browserFetch as defaultBrowserFetch } from '../net/browser-fetch.js';
+import fs from 'node:fs';
+import { assertPathAllowed } from './fs-scope.js';
+import { createScopedSql } from './sql-scope.js';
+import { scanBucketFolder, readMp4DurationMsHost } from './fs-media.js';
 
 const ALLOWED_EVENTS = new Set([
   'playback.started',
@@ -23,6 +27,7 @@ export function createPluginApi({
   secrets = null,
   settingsSchema = [],
   browserFetch = defaultBrowserFetch,
+  mediaRoots = null,
 }) {
   const perms = new Set(permissions || []);
   const unsubscribers = [];
@@ -30,11 +35,16 @@ export function createPluginApi({
   const schemaByKey = new Map(
     (settingsSchema || []).map((field) => [field.key, field]),
   );
+  const scopedSql = createScopedSql(db);
 
   function requirePerm(name) {
     if (!perms.has(name)) {
       throw new Error(`Plugin ${pluginId} lacks permission: ${name}`);
     }
+  }
+
+  function guardPath(candidate) {
+    return assertPathAllowed(candidate, mediaRoots);
   }
 
   function loadSettings() {
@@ -169,6 +179,62 @@ export function createPluginApi({
         requirePerm('plex.dvr');
         return plex.createSubscriptionFromTemplate(parameters, opts);
       },
+      async getPreference(id) {
+        requirePerm('plex.prefs');
+        return plex.getPreference(id);
+      },
+      async setPreference(id, value) {
+        requirePerm('plex.prefs');
+        return plex.setPreference(id, value);
+      },
+      isConfigured() {
+        return plex.isConfigured();
+      },
+    },
+    fs: {
+      listVideos(dir) {
+        requirePerm('fs.read');
+        const allowed = guardPath(dir);
+        return scanBucketFolder(allowed);
+      },
+      createReadStream(absPath, opts) {
+        requirePerm('fs.read');
+        const allowed = guardPath(absPath);
+        return fs.createReadStream(allowed, opts);
+      },
+      stat(absPath) {
+        requirePerm('fs.read');
+        const allowed = guardPath(absPath);
+        return fs.statSync(allowed);
+      },
+      readMp4DurationMs(absPath) {
+        requirePerm('fs.read');
+        const allowed = guardPath(absPath);
+        return readMp4DurationMsHost(allowed);
+      },
+      exists(absPath) {
+        requirePerm('fs.read');
+        try {
+          const allowed = guardPath(absPath);
+          return fs.existsSync(allowed);
+        } catch {
+          return false;
+        }
+      },
+    },
+    sql: {
+      prepare(sql) {
+        requirePerm('sql.preroll');
+        return scopedSql.prepare(sql);
+      },
+      exec(sql) {
+        requirePerm('sql.preroll');
+        return scopedSql.exec(sql);
+      },
+      transaction(fn) {
+        requirePerm('sql.preroll');
+        return scopedSql.transaction(fn);
+      },
     },
     events: {
       on(event, handler) {
@@ -185,7 +251,6 @@ export function createPluginApi({
               String(payload.accountId) !== String(configured) &&
               String(payload.accountId) !== '0'
             ) {
-              // Ignore other users' events
               return;
             }
             handler(payload);
@@ -253,7 +318,8 @@ export function createPluginApi({
           settings.smtp_from ||
           settings.mailFrom ||
           '';
-        const toAddr = to || settings.smtpTo || settings.smtp_to || settings.mailTo || '';
+        const toAddr =
+          to || settings.smtpTo || settings.smtp_to || settings.mailTo || '';
         const secure =
           settings.smtpSecure === true ||
           settings.smtp_secure === true ||

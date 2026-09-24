@@ -1,12 +1,15 @@
 # Plex Toolkit
 
-Self-hosted tools for your Plex Media Server. Run one Docker container, connect your Plex account, and use the included tools.
+Self-hosted tools for your Plex Media Server. Run one Docker container, connect your Plex account, then install the tools you want from the catalog.
 
 ## Included tools
+
+These ship in the image. Open **Tools** in the UI and click **Install** for each one you want (left disabled until you enable it).
 
 - **Netflix Rewatch** — Netflix-style Continue Watching when you rewatch episodes
 - **Plex Notifier** — track watchlist and favourite people and get Freeview/Live TV alerts
 - **Letterboxd Watchlist Sync** — copy a public Letterboxd watchlist into your Plex watchlist
+- **Preroll Scheduler** — simple cinema idents/trailers from media buckets and date-range schedules
 
 ## Install
 
@@ -79,7 +82,7 @@ Use a GitHub personal access token with `read:packages` as the password.
 
 ## Update
 
-Settings, the Plex token, and the database live in `./data`. An update replaces the app and the bundled tools, and leaves that folder alone.
+Settings, the Plex token, and the database live in `./data`. An update replaces the app. On every start the new image refreshes code only for tools you have already installed, and keeps each tool's saved settings and enabled flag.
 
 ```bash
 docker compose pull
@@ -94,8 +97,6 @@ docker stop plex-toolkit
 docker rm plex-toolkit
 # then the same docker run command as install
 ```
-
-On every start the new image recopies its tools into `./data/plugins` and keeps each tool's saved settings.
 
 ### Update from the app
 
@@ -122,6 +123,30 @@ The socket lets this app control Docker on the host. Leave it out if you would r
 
 Your Plex access token is encrypted at rest under `./data`.
 
+## Preroll Scheduler
+
+Install **Preroll Scheduler** from **Tools**, then enable it and open the app.
+
+1. Mount your preroll folders into the container and set `MEDIA_ROOTS` (see below).
+2. In the tool app: **Buckets** → point each bucket at a folder Toolkit can read.
+3. **Schedules** → ordered steps (for example: 1× Cinema Idents, 1× Trailers).
+4. Leave one schedule with no dates as the default; add Halloween/Christmas date ranges as needed.
+
+The tool writes selected paths to Plex’s `CinemaTrailersPrerollID` preference (comma-separated, played in order). Paths must be readable by the **Plex Media Server** process. If Toolkit and Plex use different mount paths for the same files, set Toolkit/Plex prefixes under the tool’s **Settings**.
+
+Cinema Trailers must be enabled on the Plex client and on the movie library.
+
+Example compose additions:
+
+```yaml
+environment:
+  MEDIA_ROOTS: /prerolls
+volumes:
+  - ./prerolls:/prerolls
+```
+
+Then use `/prerolls/idents` (etc.) as bucket folder paths. If Plex sees those files as `D:\Plex\prerolls\idents\…`, set Toolkit prefix `/prerolls` and Plex prefix `D:\Plex\prerolls` in tool Settings. When `MEDIA_ROOTS` is unset (local `npm run dev`), bucket paths are unrestricted.
+
 ## Install from source
 
 ```bash
@@ -145,7 +170,7 @@ docker compose up -d --build
 - Keep port `8787` on your LAN (or behind a reverse proxy with TLS). Do not publish it to the open internet without protection.
 - Treat `./data` as sensitive: encryption key, encrypted Plex token, SQLite, and tool settings.
 - `POST /webhooks/plex` is unauthenticated by design so Plex can call it. Only enable a public webhook URL if you understand that risk.
-- Tools run in-process with declared permissions. Only the tools shipped in the image are loaded.
+- Tools run in-process with declared permissions. Only tools from the image catalog can be installed; startup removes anything else under `./data/plugins`.
 
 ## Persistent data
 
@@ -153,7 +178,7 @@ docker compose up -d --build
 data/
   config/     encryption key
   database/   SQLite
-  plugins/    runtime copies of bundled tools (overwritten from the image on boot)
+  plugins/    installed tools (code refreshed from the image on boot for catalog tools)
   logs/
 ```
 
@@ -188,6 +213,7 @@ npm test
 | `PLEX_CLIENT_ID` | Optional stable Plex app client id; otherwise generated in `data/config/client.id` |
 | `PUBLIC_URL` | Base URL for webhook display |
 | `SECRET_KEY` | Optional 64-char hex key; otherwise generated in `data/config/secret.key` |
+| `MEDIA_ROOTS` | Optional semicolon-separated roots for `fs.read` tools (e.g. Preroll). Unset = unrestricted |
 
 ## Tool API
 

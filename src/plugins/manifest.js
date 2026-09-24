@@ -6,12 +6,15 @@ const KNOWN_PERMISSIONS = new Set([
   'plex.discover',
   'plex.dvr',
   'plex.refresh',
+  'plex.prefs',
   'events.subscribe',
   'storage',
   'scheduler',
   'changes',
   'mail.send',
   'net.fetch',
+  'fs.read',
+  'sql.preroll',
 ]);
 
 export function validateManifest(raw, { pluginRoot } = {}) {

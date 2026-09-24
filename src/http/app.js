@@ -1,8 +1,3 @@
-import express from 'express';
-import cookieParser from 'cookie-parser';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   layout,
   escapeHtml,
@@ -10,6 +5,11 @@ import {
   renderGroupedSettings,
 } from './views/layout.js';
 import { getSetting, setSetting } from '../db/index.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import express from 'express';
+import cookieParser from 'cookie-parser';
 import {
   createPin,
   waitForPinToken,
@@ -793,9 +793,13 @@ docker compose up -d</pre>
 
   // Legacy no-op redirects from old manual form endpoints
   app.post('/plex', requireAuth, (_req, res) => res.redirect('/plex'));
+
   app.get('/plugins', requireAuth, (req, res) => {
     const plugins = pluginManager.listInstalled();
-    const rows =
+    const catalog = pluginManager.listCatalog();
+    const available = catalog.filter((c) => !c.installed);
+
+    const installedRows =
       plugins
         .map((p) => {
           const status = p.enabled
@@ -824,19 +828,73 @@ docker compose up -d</pre>
               <form method="post" action="/plugins/${encodeURIComponent(p.id)}/${p.enabled ? 'disable' : 'enable'}">
                 <button type="submit">${p.enabled ? 'Disable' : 'Enable'}</button>
               </form>
+              <form method="post" action="/plugins/${encodeURIComponent(p.id)}/remove" onsubmit="return confirm('Remove this tool? Its settings will be deleted.')">
+                <button type="submit" class="ghost">Remove</button>
+              </form>
             </div>
           </div>`;
         })
-        .join('') || '<p class="muted">No tools bundled yet.</p>';
+        .join('') || '<p class="muted">No tools installed yet. Install one from the catalog below.</p>';
+
+    const availableRows =
+      available
+        .map(
+          (c) => `<div class="plugin-row">
+            <div>
+              <strong>${escapeHtml(c.name)}</strong>
+              <div class="muted" style="font-size:0.8rem;margin-top:0.2rem">v${escapeHtml(c.version)}</div>
+              <p class="muted" style="margin-top:0.5rem;max-width:36rem">${escapeHtml(c.description || '')}</p>
+            </div>
+            <div class="row-actions quiet">
+              <form method="post" action="/plugins/${encodeURIComponent(c.id)}/install">
+                <button type="submit" class="primary">Install</button>
+              </form>
+            </div>
+          </div>`,
+        )
+        .join('') || '<p class="muted">All bundled tools are installed.</p>';
 
     render(req, res, {
       title: 'Tools',
       nav: 'plugins',
       body: `
-        ${pageHeader('Tools', 'Enable tools that use your shared Plex connection.')}
-        <div class="panel">${rows}</div>
+        ${pageHeader('Tools', 'Install tools that use your shared Plex connection, then enable the ones you want.')}
+        <div class="panel">
+          <h2 style="margin:0 0 1rem;font-size:1rem">Installed</h2>
+          ${installedRows}
+        </div>
+        <div class="panel" style="margin-top:1.25rem">
+          <h2 style="margin:0 0 1rem;font-size:1rem">Available</h2>
+          ${availableRows}
+        </div>
       `,
     });
+  });
+
+  app.post('/plugins/:id/install', requireAuth, async (req, res) => {
+    try {
+      const plugin = await pluginManager.installBundled(req.params.id);
+      flash(res, 'ok', `${plugin.name} installed. Enable it when you are ready.`);
+      res.redirect(`/plugins/${encodeURIComponent(plugin.id)}`);
+    } catch (err) {
+      flash(res, 'error', err.message);
+      res.redirect('/plugins');
+    }
+  });
+
+  app.post('/plugins/:id/remove', requireAuth, async (req, res) => {
+    const plugin = pluginManager.get(req.params.id);
+    if (!plugin) {
+      flash(res, 'error', 'Plugin not found');
+      return res.redirect('/plugins');
+    }
+    try {
+      await pluginManager.remove(plugin.id);
+      flash(res, 'ok', `${plugin.name} removed`);
+    } catch (err) {
+      flash(res, 'error', err.message);
+    }
+    res.redirect('/plugins');
   });
 
   app.get('/plugins/:id', requireAuth, async (req, res) => {
@@ -1038,10 +1096,21 @@ docker compose up -d</pre>
       const result = await handleRequest(api, {
         method: req.method,
         path: req.path,
+        url: req.originalUrl || req.url,
         query: req.query || {},
         body: req.body || {},
         params: req.params,
+        headers: req.headers || {},
       });
+
+      if (result?.file) {
+        return streamPluginFile(req, res, result);
+      }
+
+      if (result?.status === 404) {
+        res.status(404).send(result.body || 'Not found');
+        return;
+      }
 
       if (result?.redirect) {
         if (result.message) {
@@ -1077,6 +1146,41 @@ docker compose up -d</pre>
   void setSetting;
 
   return app;
+}
+
+/**
+ * Stream a local file returned by a plugin handleRequest ({ file, contentType, size }).
+ */
+function streamPluginFile(req, res, result) {
+  const filePath = result.file;
+  const total =
+    result.size != null
+      ? Number(result.size)
+      : fs.statSync(filePath).size;
+  const contentType = result.contentType || 'application/octet-stream';
+  const range = req.headers.range;
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Accept-Ranges', 'bytes');
+  if (range) {
+    const m = /^bytes=(\d*)-(\d*)$/.exec(range);
+    if (!m) {
+      res.status(416).end();
+      return;
+    }
+    const start = m[1] ? Number(m[1]) : 0;
+    const end = m[2] ? Number(m[2]) : total - 1;
+    if (start >= total || end >= total || start > end) {
+      res.status(416).setHeader('Content-Range', `bytes */${total}`).end();
+      return;
+    }
+    res.status(206);
+    res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
+    res.setHeader('Content-Length', end - start + 1);
+    fs.createReadStream(filePath, { start, end }).pipe(res);
+    return;
+  }
+  res.setHeader('Content-Length', total);
+  fs.createReadStream(filePath).pipe(res);
 }
 
 function parseFieldValue(field, body) {

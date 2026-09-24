@@ -1,0 +1,35 @@
+{
+  "id": "preroll-scheduler",
+  "name": "Preroll Scheduler",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "author": "Thunderhat",
+  "description": "Simple cinema prerolls from media buckets and date-range schedules. Keeps the next preroll ready in Plex ahead of each movie.",
+  "entry": "plugin.js",
+  "permissions": [
+    "plex.prefs",
+    "fs.read",
+    "sql.preroll",
+    "events.subscribe",
+    "scheduler"
+  ],
+  "settingsSchema": [
+    {
+      "key": "toolkitPrefix",
+      "type": "string",
+      "label": "Toolkit folder prefix",
+      "default": "",
+      "section": "Path mapping",
+      "help": "Optional. Path prefix as seen inside Plex Toolkit (e.g. /prerolls). Leave blank when Toolkit and Plex share the same paths."
+    },
+    {
+      "key": "plexPrefix",
+      "type": "string",
+      "label": "Plex folder prefix",
+      "default": "",
+      "section": "Path mapping",
+      "help": "Optional. Same folder as seen by Plex Media Server (e.g. D:\\Plex\\prerolls).",
+      "pairWith": "toolkitPrefix"
+    }
+  ]
+}

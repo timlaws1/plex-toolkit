@@ -52,7 +52,19 @@ export const config = {
   adminPassword: process.env.ADMIN_PASSWORD || '',
   plexClientId: process.env.PLEX_CLIENT_ID || '',
   publicUrl: process.env.PUBLIC_URL || '',
+  /** @type {string[]|null} null = unrestricted (local dev) */
+  mediaRoots: parseMediaRootsEnv(process.env.MEDIA_ROOTS),
 };
+
+function parseMediaRootsEnv(raw) {
+  if (raw == null || String(raw).trim() === '') return null;
+  const roots = String(raw)
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => (path.isAbsolute(s) ? s : path.resolve(ROOT, s)));
+  return roots.length ? roots : null;
+}
 
 export function ensureDataDirs() {
   for (const dir of [

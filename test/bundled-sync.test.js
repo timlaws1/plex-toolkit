@@ -67,7 +67,7 @@ function createManager(root) {
   return { manager, db, toolsDir, pluginsDir };
 }
 
-test('syncBundled installs and enables a new tool', async () => {
+test('syncBundled does not install a tool that was never installed', async () => {
   const root = makeTempRoot();
   const { manager, toolsDir } = createManager(root);
   writeFixtureTool(toolsDir, {
@@ -77,17 +77,43 @@ test('syncBundled installs and enables a new tool', async () => {
   });
 
   await manager.syncBundled();
-  await manager.loadEnabled();
+
+  assert.equal(manager.get('demo-tool'), null);
+  assert.equal(
+    fs.existsSync(path.join(manager.pluginPath('demo-tool'), 'plugin.js')),
+    false,
+  );
+  const catalog = manager.listCatalog();
+  assert.equal(catalog.length, 1);
+  assert.equal(catalog[0].id, 'demo-tool');
+  assert.equal(catalog[0].installed, false);
+});
+
+test('installBundled installs one tool disabled and sync refreshes it', async () => {
+  const root = makeTempRoot();
+  const { manager, toolsDir } = createManager(root);
+  writeFixtureTool(toolsDir, {
+    id: 'demo-tool',
+    name: 'Demo Tool',
+    version: '1.0.0',
+  });
+
+  const installed = await manager.installBundled('demo-tool');
+  assert.equal(installed.enabled, false);
+  assert.equal(installed.source_type, 'bundled');
+  assert.equal(installed.version, '1.0.0');
+  assert.equal(manager.listCatalog()[0].installed, true);
+
+  writeFixtureTool(toolsDir, {
+    id: 'demo-tool',
+    name: 'Demo Tool',
+    version: '1.1.0',
+  });
+  await manager.syncBundled();
 
   const row = manager.get('demo-tool');
-  assert.ok(row);
-  assert.equal(row.enabled, true);
-  assert.equal(row.source_type, 'bundled');
-  assert.equal(row.version, '1.0.0');
-  assert.equal(row.active, true);
-  assert.ok(
-    fs.existsSync(path.join(manager.pluginPath('demo-tool'), 'plugin.js')),
-  );
+  assert.equal(row.version, '1.1.0');
+  assert.equal(row.enabled, false);
 });
 
 test('syncBundled upgrades code and preserves settings and enabled flag', async () => {
@@ -98,8 +124,9 @@ test('syncBundled upgrades code and preserves settings and enabled flag', async 
     name: 'Demo Tool',
     version: '1.0.0',
   });
-  await manager.syncBundled();
+  await manager.installBundled('demo-tool');
   manager.saveSettings('demo-tool', { note: 'keep-me' });
+  await manager.enable('demo-tool');
   await manager.disable('demo-tool');
 
   writeFixtureTool(toolsDir, {
@@ -129,7 +156,7 @@ test('syncBundled overwrites tampered tool code even when version is unchanged',
     name: 'Demo Tool',
     version: '1.0.0',
   });
-  await manager.syncBundled();
+  await manager.installBundled('demo-tool');
 
   const entry = path.join(manager.pluginPath('demo-tool'), 'plugin.js');
   fs.writeFileSync(
@@ -152,7 +179,7 @@ test('syncBundled removes tools that are not in the image (e.g. crate)', async (
     name: 'Demo Tool',
     version: '1.0.0',
   });
-  await manager.syncBundled();
+  await manager.installBundled('demo-tool');
 
   const crateDir = path.join(pluginsDir, 'crate');
   fs.mkdirSync(crateDir, { recursive: true });

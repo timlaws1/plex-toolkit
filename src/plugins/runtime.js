@@ -16,6 +16,7 @@ export class InProcessRuntime {
     panels,
     scheduler,
     secrets = null,
+    mediaRoots = null,
   }) {
     this.plex = plex;
     this.bus = bus;
@@ -25,6 +26,7 @@ export class InProcessRuntime {
     this.panels = panels;
     this.scheduler = scheduler;
     this.secrets = secrets;
+    this.mediaRoots = mediaRoots;
     /** @type {Map<string, { module: any, api: any }>} */
     this.active = new Map();
   }
@@ -72,6 +74,7 @@ export class InProcessRuntime {
       scheduler: this.scheduler,
       secrets: this.secrets,
       settingsSchema,
+      mediaRoots: this.mediaRoots,
     });
 
     await activate(api);

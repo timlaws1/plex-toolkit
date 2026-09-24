@@ -837,6 +837,34 @@ export class PlexClient {
     };
   }
 
+  /**
+   * Read a single PMS preference by id (e.g. CinemaTrailersPrerollID).
+   * @param {string} id
+   * @returns {Promise<{ id: string, value: string|null, label: string|null }|null>}
+   */
+  async getPreference(id) {
+    const data = await this.request('GET', '/:/prefs');
+    const settings = asList(data?.MediaContainer?.Setting || data?.Setting);
+    const match = settings.find((s) => s?.id === id);
+    if (!match) return null;
+    return {
+      id: String(match.id),
+      value: match.value != null ? String(match.value) : null,
+      label: match.label != null ? String(match.label) : null,
+    };
+  }
+
+  /**
+   * Set a PMS preference. Names are case-sensitive.
+   * @param {string} id
+   * @param {string} value
+   */
+  async setPreference(id, value) {
+    await this.request('PUT', '/:/prefs', {
+      query: { [id]: value == null ? '' : String(value) },
+    });
+  }
+
   websocketUrl() {
     if (!this.url || !this.token) return null;
     const u = new URL(this.url);

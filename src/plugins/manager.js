@@ -91,10 +91,10 @@ export class PluginManager {
   }
 
   /**
-   * Copy tools from the image/repo `tools/` folder into data/plugins on every
-   * boot so bundled code cannot be replaced by a tampered volume copy.
-   * Preserves settings and the user's enabled flag; removes tools no longer
-   * shipped in the image.
+   * Refresh already-installed bundled tools from the image/repo `tools/`
+   * folder so volume copies cannot stay tampered. Does not install tools the
+   * user has not chosen. Preserves settings and the enabled flag. Removes
+   * tools that are no longer shipped or are not from the image catalog.
    */
   async syncBundled() {
     if (!this.toolsDir || !fs.existsSync(this.toolsDir)) {
@@ -102,25 +102,32 @@ export class PluginManager {
       return;
     }
 
-    const bundledIds = new Set();
-    const entries = fs.readdirSync(this.toolsDir, { withFileTypes: true });
-    for (const entry of entries) {
+    const catalogById = new Map();
+    for (const entry of fs.readdirSync(this.toolsDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const srcDir = path.join(this.toolsDir, entry.name);
-      let manifest;
       try {
-        manifest = this._readAndValidate(srcDir);
+        const manifest = this._readAndValidate(srcDir);
+        catalogById.set(manifest.id, { manifest, srcDir });
       } catch (err) {
         this.logger.error(
           `Skipping invalid bundled tool ${entry.name}: ${err.message}`,
         );
+      }
+    }
+
+    for (const row of this.listInstalled()) {
+      const catalog = catalogById.get(row.id);
+      if (!catalog) {
+        this.logger.info(`Removing tool not in image: ${row.id}`, {
+          pluginId: row.id,
+        });
+        await this.remove(row.id);
         continue;
       }
-      bundledIds.add(manifest.id);
 
+      const { manifest, srcDir } = catalog;
       const dest = this.pluginPath(manifest.id);
-      const existing = dbGet(this.db, manifest.id);
-
       if (this.runtime.isActive(manifest.id)) {
         await this.runtime.deactivate(manifest.id);
       }
@@ -131,47 +138,101 @@ export class PluginManager {
         { pluginId: manifest.id },
       );
 
-      if (!existing) {
-        this._upsertDb(manifest, {
-          source_type: 'bundled',
-          source_url: srcDir,
-          enabled: 1,
+      this.db
+        .prepare(
+          `UPDATE plugins SET
+             name = ?,
+             version = ?,
+             author = ?,
+             description = ?,
+             source_type = 'bundled',
+             source_url = ?,
+             permissions = ?,
+             updated_at = datetime('now'),
+             last_error = NULL
+           WHERE id = ?`,
+        )
+        .run(
+          manifest.name,
+          manifest.version,
+          manifest.author,
+          manifest.description,
+          srcDir,
+          JSON.stringify(manifest.permissions),
+          manifest.id,
+        );
+    }
+  }
+
+  /**
+   * Tools shipped in the image, whether or not the user has installed them.
+   */
+  listCatalog() {
+    if (!this.toolsDir || !fs.existsSync(this.toolsDir)) return [];
+    const installed = new Set(this.listInstalled().map((p) => p.id));
+    const items = [];
+    for (const entry of fs.readdirSync(this.toolsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const srcDir = path.join(this.toolsDir, entry.name);
+      try {
+        const manifest = this._readAndValidate(srcDir);
+        items.push({
+          id: manifest.id,
+          name: manifest.name,
+          version: manifest.version,
+          description: manifest.description || '',
+          installed: installed.has(manifest.id),
         });
-      } else {
-        this.db
-          .prepare(
-            `UPDATE plugins SET
-               name = ?,
-               version = ?,
-               author = ?,
-               description = ?,
-               source_type = 'bundled',
-               source_url = ?,
-               permissions = ?,
-               updated_at = datetime('now'),
-               last_error = NULL
-             WHERE id = ?`,
-          )
-          .run(
-            manifest.name,
-            manifest.version,
-            manifest.author,
-            manifest.description,
-            srcDir,
-            JSON.stringify(manifest.permissions),
-            manifest.id,
-          );
+      } catch {
+        // skip invalid catalog entries
       }
+    }
+    return items.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Copy one bundled tool into data/plugins. Leaves it disabled.
+   */
+  async installBundled(id) {
+    if (!this.toolsDir || !fs.existsSync(this.toolsDir)) {
+      throw new Error('No bundled tools directory found');
+    }
+    if (dbGet(this.db, id)) {
+      throw new Error('Tool is already installed');
     }
 
-    for (const row of this.listInstalled()) {
-      if (!bundledIds.has(row.id)) {
-        this.logger.info(`Removing tool not in image: ${row.id}`, {
-          pluginId: row.id,
-        });
-        await this.remove(row.id);
+    let match = null;
+    for (const entry of fs.readdirSync(this.toolsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const srcDir = path.join(this.toolsDir, entry.name);
+      try {
+        const manifest = this._readAndValidate(srcDir);
+        if (manifest.id === id) {
+          match = { manifest, srcDir };
+          break;
+        }
+      } catch {
+        // skip
       }
     }
+    if (!match) {
+      throw new Error('Tool is not in the image catalog');
+    }
+
+    const { manifest, srcDir } = match;
+    const dest = this.pluginPath(manifest.id);
+    if (fs.existsSync(dest)) rmrf(dest);
+    copyDir(srcDir, dest);
+    this._upsertDb(manifest, {
+      source_type: 'bundled',
+      source_url: srcDir,
+      enabled: 0,
+    });
+    this.logger.info(
+      `Installed bundled tool ${manifest.id}@${manifest.version}`,
+      { pluginId: manifest.id },
+    );
+    return this.get(manifest.id);
   }
 
   pluginPath(id) {

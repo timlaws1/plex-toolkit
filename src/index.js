@@ -62,6 +62,7 @@ async function main() {
     panels,
     scheduler,
     secrets,
+    mediaRoots: config.mediaRoots,
   });
 
   const pluginManager = new PluginManager({
