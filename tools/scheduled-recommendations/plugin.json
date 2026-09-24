@@ -1,0 +1,60 @@
+{
+  "id": "scheduled-recommendations",
+  "name": "Scheduled Recommendations",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "author": "Thunderhat",
+  "description": "Taste-based film picks from your Letterboxd history, published into Plex on a schedule.",
+  "entry": "plugin.js",
+  "permissions": [
+    "plex.read",
+    "plex.discover",
+    "plex.collections",
+    "events.subscribe",
+    "scheduler",
+    "net.fetch",
+    "sql.recommendations"
+  ],
+  "settingsSchema": [
+    {
+      "key": "tmdbApiKey",
+      "type": "secret",
+      "label": "TMDb API key",
+      "section": "Taste data",
+      "help": "Used to match films and read streaming availability. Recommendations still run from your Plex library if this is blank."
+    },
+    {
+      "key": "watchRegion",
+      "type": "string",
+      "label": "Streaming region",
+      "default": "GB",
+      "section": "Taste data",
+      "help": "ISO country code for streaming labels, for example GB or US."
+    },
+    {
+      "key": "letterboxdUsername",
+      "type": "string",
+      "label": "Letterboxd username",
+      "default": "",
+      "section": "Letterboxd",
+      "help": "Public username. Used to build the activity RSS feed."
+    },
+    {
+      "key": "letterboxdRssUrl",
+      "type": "string",
+      "label": "Letterboxd RSS URL",
+      "default": "",
+      "section": "Letterboxd",
+      "help": "Optional. Leave blank to use https://letterboxd.com/{username}/rss/"
+    },
+    {
+      "key": "rssIntervalHours",
+      "type": "number",
+      "label": "RSS check interval (hours)",
+      "default": 6,
+      "min": 1,
+      "max": 168,
+      "section": "Letterboxd"
+    }
+  ]
+}

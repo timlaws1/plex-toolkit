@@ -36,7 +36,9 @@ my-tool/
     "mail.send",
     "net.fetch",
     "fs.read",
-    "sql.preroll"
+    "sql.preroll",
+    "sql.recommendations",
+    "plex.collections"
   ],
   "settingsSchema": [
     {
@@ -109,6 +111,13 @@ The host passes a facade only. Tools do not receive the Plex token, filesystem a
 - `ctx.plex.markUnwatched(ratingKey)` — Plex unscrobble (preserves history where Plex allows)
 - `ctx.plex.getWatchlist()` — account watchlist via Discover (`plex.discover`)
 - `ctx.plex.addToWatchlist(ratingKey)` — add a Discover item to the account watchlist (`plex.discover`)
+- `ctx.plex.removeFromWatchlist(ratingKey)` — remove a Discover item from the account watchlist (`plex.discover`)
+- `ctx.plex.listCollections(sectionId)` — movie collections in a library (`plex.collections`)
+- `ctx.plex.createCollection({ sectionId, title, ratingKeys })` — regular collection; needs at least one library item (`plex.collections`)
+- `ctx.plex.addCollectionItems(collectionKey, ratingKeys)` / `removeCollectionItem` / `getCollectionItems` (`plex.collections`)
+- `ctx.plex.setItemSummary(ratingKey, summary)` (`plex.collections`)
+- `ctx.plex.createPlaylist({ title, ratingKeys })` — video playlist (`plex.collections`)
+- `ctx.plex.addPlaylistItems` / `removePlaylistItem` / `getPlaylistItems` (`plex.collections`)
 - `ctx.plex.searchDiscover(query, { limit })` — title search (`plex.discover`)
 - `ctx.plex.getDiscoverMetadata(ratingKeyOrPath)` — Discover metadata with cast (`plex.discover`)
 - `ctx.plex.getDvrs()` — configured DVRs (`plex.dvr`)
@@ -133,9 +142,9 @@ Scoped to `MEDIA_ROOTS` when that env var is set (semicolon-separated absolute p
 - `ctx.fs.createReadStream(absPath, opts)`
 - `ctx.fs.readMp4DurationMs(absPath)`
 
-### SQL (`sql.preroll`)
+### SQL (`sql.preroll` / `sql.recommendations`)
 
-Prepared statements against the host SQLite database, limited to preroll tables: `preroll_buckets`, `preroll_items`, `preroll_schedules`, `preroll_steps`, `preroll_history`, `preroll_state`.
+Prepared statements against the host SQLite database. Each SQL permission allowlists its own tables. `sql.preroll` covers `preroll_buckets`, `preroll_items`, `preroll_schedules`, `preroll_steps`, `preroll_history`, `preroll_state`. `sql.recommendations` covers the `rec_*` schedule, Letterboxd, and cache tables. A tool cannot read another tool's tables.
 
 - `ctx.sql.prepare(sql)`
 - `ctx.sql.exec(sql)`

@@ -2,7 +2,7 @@ import { sendMail } from '../mail/smtp.js';
 import { browserFetch as defaultBrowserFetch } from '../net/browser-fetch.js';
 import fs from 'node:fs';
 import { assertPathAllowed } from './fs-scope.js';
-import { createScopedSql } from './sql-scope.js';
+import { allowlistForPermissions, createScopedSql, hasSqlPermission } from './sql-scope.js';
 import { scanBucketFolder, readMp4DurationMsHost } from './fs-media.js';
 
 const ALLOWED_EVENTS = new Set([
@@ -35,7 +35,7 @@ export function createPluginApi({
   const schemaByKey = new Map(
     (settingsSchema || []).map((field) => [field.key, field]),
   );
-  const scopedSql = createScopedSql(db);
+  const scopedSql = createScopedSql(db, allowlistForPermissions(perms));
 
   function requirePerm(name) {
     if (!perms.has(name)) {
@@ -139,6 +139,50 @@ export function createPluginApi({
         requirePerm('plex.discover');
         return plex.addToWatchlist(ratingKey);
       },
+      async removeFromWatchlist(ratingKey) {
+        requirePerm('plex.discover');
+        return plex.removeFromWatchlist(ratingKey);
+      },
+      async listCollections(sectionId) {
+        requirePerm('plex.collections');
+        return plex.listCollections(sectionId);
+      },
+      async createCollection(options) {
+        requirePerm('plex.collections');
+        return plex.createCollection(options);
+      },
+      async addCollectionItems(collectionKey, ratingKeys) {
+        requirePerm('plex.collections');
+        return plex.addCollectionItems(collectionKey, ratingKeys);
+      },
+      async removeCollectionItem(collectionKey, ratingKey) {
+        requirePerm('plex.collections');
+        return plex.removeCollectionItem(collectionKey, ratingKey);
+      },
+      async getCollectionItems(collectionKey) {
+        requirePerm('plex.collections');
+        return plex.getCollectionItems(collectionKey);
+      },
+      async setItemSummary(ratingKey, summary) {
+        requirePerm('plex.collections');
+        return plex.setItemSummary(ratingKey, summary);
+      },
+      async createPlaylist(options) {
+        requirePerm('plex.collections');
+        return plex.createPlaylist(options);
+      },
+      async addPlaylistItems(playlistKey, ratingKeys) {
+        requirePerm('plex.collections');
+        return plex.addPlaylistItems(playlistKey, ratingKeys);
+      },
+      async removePlaylistItem(playlistKey, playlistItemId) {
+        requirePerm('plex.collections');
+        return plex.removePlaylistItem(playlistKey, playlistItemId);
+      },
+      async getPlaylistItems(playlistKey) {
+        requirePerm('plex.collections');
+        return plex.getPlaylistItems(playlistKey);
+      },
       async searchDiscover(query, opts) {
         requirePerm('plex.discover');
         return plex.searchDiscover(query, opts);
@@ -224,15 +268,21 @@ export function createPluginApi({
     },
     sql: {
       prepare(sql) {
-        requirePerm('sql.preroll');
+        if (!hasSqlPermission(perms)) {
+          throw new Error(`Plugin ${pluginId} lacks permission: sql`);
+        }
         return scopedSql.prepare(sql);
       },
       exec(sql) {
-        requirePerm('sql.preroll');
+        if (!hasSqlPermission(perms)) {
+          throw new Error(`Plugin ${pluginId} lacks permission: sql`);
+        }
         return scopedSql.exec(sql);
       },
       transaction(fn) {
-        requirePerm('sql.preroll');
+        if (!hasSqlPermission(perms)) {
+          throw new Error(`Plugin ${pluginId} lacks permission: sql`);
+        }
         return scopedSql.transaction(fn);
       },
     },

@@ -7,6 +7,22 @@ const PREROLL_TABLES = new Set([
   'preroll_state',
 ]);
 
+const RECOMMENDATION_TABLES = new Set([
+  'rec_letterboxd_imports',
+  'rec_letterboxd_films',
+  'rec_letterboxd_activity',
+  'rec_schedules',
+  'rec_runs',
+  'rec_items',
+  'rec_tmdb_movies',
+  'rec_streaming_cache',
+]);
+
+const SQL_SCOPES = {
+  'sql.preroll': PREROLL_TABLES,
+  'sql.recommendations': RECOMMENDATION_TABLES,
+};
+
 const SQL_KEYWORDS = new Set([
   'set',
   'select',
@@ -85,8 +101,29 @@ export function assertSqlTablesAllowed(sql, allowlist = PREROLL_TABLES) {
   }
   if (names.length === 0 && /^\s*(SELECT|INSERT|UPDATE|DELETE|WITH)\b/i.test(sql)) {
     // Subquery-only or unusual SQL — reject rather than allow through
-    throw new Error('SQL must reference an allowlisted preroll table');
+    throw new Error('SQL must reference an allowlisted table');
   }
+}
+
+/**
+ * @param {Iterable<string>} permissions
+ * @returns {Set<string>}
+ */
+export function allowlistForPermissions(permissions) {
+  const allow = new Set();
+  for (const perm of permissions || []) {
+    const tables = SQL_SCOPES[perm];
+    if (!tables) continue;
+    for (const name of tables) allow.add(name);
+  }
+  return allow;
+}
+
+export function hasSqlPermission(permissions) {
+  for (const perm of permissions || []) {
+    if (SQL_SCOPES[perm]) return true;
+  }
+  return false;
 }
 
 /**
@@ -110,4 +147,4 @@ export function createScopedSql(db, allowlist = PREROLL_TABLES) {
   };
 }
 
-export { PREROLL_TABLES };
+export { PREROLL_TABLES, RECOMMENDATION_TABLES, SQL_SCOPES };

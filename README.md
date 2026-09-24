@@ -10,6 +10,7 @@ These ship in the image. Open **Tools** in the UI and click **Install** for each
 - **Plex Notifier** — track watchlist and favourite people and get Freeview/Live TV alerts
 - **Letterboxd Watchlist Sync** — copy a public Letterboxd watchlist into your Plex watchlist
 - **Preroll Scheduler** — simple cinema idents/trailers from media buckets and date-range schedules
+- **Scheduled Recommendations** — taste-based film picks from Letterboxd, published into Plex on a schedule
 
 ## Install
 

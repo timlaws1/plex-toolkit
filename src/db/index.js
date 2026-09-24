@@ -182,6 +182,127 @@ CREATE INDEX IF NOT EXISTS idx_preroll_history_bucket ON preroll_history(bucket_
 ALTER TABLE preroll_schedules ADD COLUMN repeat_yearly INTEGER NOT NULL DEFAULT 0;
 `,
   },
+  {
+    id: 5,
+    sql: `
+CREATE TABLE IF NOT EXISTS rec_letterboxd_imports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  finished_at TEXT,
+  film_count INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS rec_letterboxd_films (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  letterboxd_uri TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  year INTEGER,
+  tmdb_id INTEGER,
+  imdb_id TEXT,
+  rating REAL,
+  watched INTEGER NOT NULL DEFAULT 0,
+  watchlist INTEGER NOT NULL DEFAULT 0,
+  tags TEXT,
+  review_excerpt TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS rec_letterboxd_activity (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  film_id INTEGER,
+  kind TEXT NOT NULL,
+  source TEXT NOT NULL,
+  rss_guid TEXT,
+  happened_on TEXT,
+  rating REAL,
+  tags TEXT,
+  review_excerpt TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (film_id) REFERENCES rec_letterboxd_films(id) ON DELETE CASCADE,
+  UNIQUE (rss_guid)
+);
+
+CREATE TABLE IF NOT EXISTS rec_schedules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  days TEXT NOT NULL DEFAULT '[]',
+  time_local TEXT NOT NULL DEFAULT '18:00',
+  film_count INTEGER NOT NULL DEFAULT 1,
+  runtime_min INTEGER,
+  runtime_max INTEGER,
+  prefer_plex INTEGER NOT NULL DEFAULT 1,
+  allow_streaming INTEGER NOT NULL DEFAULT 0,
+  genres TEXT NOT NULL DEFAULT '',
+  excluded_genres TEXT NOT NULL DEFAULT '',
+  rating_min REAL,
+  rating_max REAL,
+  output_type TEXT NOT NULL DEFAULT 'collection',
+  plex_section_id TEXT,
+  plex_destination_id TEXT,
+  plex_destination_title TEXT,
+  replace_on_watch INTEGER NOT NULL DEFAULT 1,
+  remove_watchlist INTEGER NOT NULL DEFAULT 0,
+  preset TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS rec_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  schedule_id INTEGER NOT NULL,
+  slot_date TEXT NOT NULL,
+  status TEXT NOT NULL,
+  message TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (schedule_id, slot_date),
+  FOREIGN KEY (schedule_id) REFERENCES rec_schedules(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS rec_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  schedule_id INTEGER NOT NULL,
+  run_id INTEGER,
+  position INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  year INTEGER,
+  tmdb_id INTEGER,
+  plex_rating_key TEXT,
+  discover_rating_key TEXT,
+  provider TEXT,
+  active INTEGER NOT NULL DEFAULT 1,
+  watched_at TEXT,
+  recommended_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (schedule_id) REFERENCES rec_schedules(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS rec_tmdb_movies (
+  tmdb_id INTEGER PRIMARY KEY,
+  title TEXT,
+  year INTEGER,
+  runtime INTEGER,
+  vote_average REAL,
+  genres TEXT,
+  directors TEXT,
+  actors TEXT,
+  similar_ids TEXT,
+  fetched_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rec_streaming_cache (
+  tmdb_id INTEGER NOT NULL,
+  region TEXT NOT NULL,
+  providers TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  PRIMARY KEY (tmdb_id, region)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rec_films_tmdb ON rec_letterboxd_films(tmdb_id);
+CREATE INDEX IF NOT EXISTS idx_rec_items_schedule ON rec_items(schedule_id, active);
+CREATE INDEX IF NOT EXISTS idx_rec_activity_film ON rec_letterboxd_activity(film_id);
+`,
+  },
 ];
 
 export function openDatabase(dbPath) {

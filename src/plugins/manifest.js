@@ -15,6 +15,8 @@ const KNOWN_PERMISSIONS = new Set([
   'net.fetch',
   'fs.read',
   'sql.preroll',
+  'sql.recommendations',
+  'plex.collections',
 ]);
 
 export function validateManifest(raw, { pluginRoot } = {}) {

@@ -99,6 +99,17 @@ function mapLibraryItem(item, libraryId) {
   };
 }
 
+function mapCollection(item) {
+  return {
+    ratingKey: String(item.ratingKey),
+    title: item.title || '',
+    summary: item.summary || '',
+    librarySectionID:
+      item.librarySectionID != null ? String(item.librarySectionID) : null,
+    childCount: item.childCount != null ? Number(item.childCount) : null,
+  };
+}
+
 function mapMetadata(item) {
   if (!item) return null;
   return {
@@ -863,6 +874,146 @@ export class PlexClient {
     await this.request('PUT', '/:/prefs', {
       query: { [id]: value == null ? '' : String(value) },
     });
+  }
+
+  libraryItemUri(machineId, ratingKeys) {
+    const keys = (Array.isArray(ratingKeys) ? ratingKeys : [ratingKeys])
+      .map((key) => String(key).trim())
+      .filter(Boolean)
+      .join(',');
+    return `server://${machineId}/com.plexapp.plugins.library/library/metadata/${keys}`;
+  }
+
+  async machineId() {
+    const server = await this.getServer();
+    if (!server?.machineId) throw new Error('Plex machine id is unavailable');
+    return server.machineId;
+  }
+
+  async listCollections(sectionId) {
+    const id = String(sectionId || '').trim();
+    if (!id) throw new Error('Library section id is required');
+    const data = await this.request('GET', `/library/sections/${id}/collections`);
+    return asList(data?.MediaContainer?.Metadata).map(mapCollection);
+  }
+
+  /**
+   * Create a regular (not smart) movie collection. Plex requires at least one item.
+   */
+  async createCollection({ sectionId, title, ratingKeys }) {
+    const keys = (ratingKeys || []).map(String).filter(Boolean);
+    if (!keys.length) throw new Error('A collection needs at least one library item');
+    const machineId = await this.machineId();
+    const data = await this.request('POST', '/library/collections', {
+      query: {
+        type: 1,
+        title: String(title || 'Recommendations'),
+        smart: 0,
+        sectionId: String(sectionId),
+        uri: this.libraryItemUri(machineId, keys),
+      },
+    });
+    const item = asList(data?.MediaContainer?.Metadata)[0];
+    if (!item?.ratingKey) throw new Error('Plex did not return a collection');
+    return mapCollection(item);
+  }
+
+  async addCollectionItems(collectionKey, ratingKeys) {
+    const keys = (ratingKeys || []).map(String).filter(Boolean);
+    if (!keys.length) return { ok: true };
+    const machineId = await this.machineId();
+    await this.request('PUT', `/library/collections/${collectionKey}/items`, {
+      query: { uri: this.libraryItemUri(machineId, keys) },
+    });
+    return { ok: true };
+  }
+
+  async removeCollectionItem(collectionKey, ratingKey) {
+    await this.request(
+      'DELETE',
+      `/library/collections/${collectionKey}/items/${ratingKey}`,
+    );
+    return { ok: true };
+  }
+
+  async getCollectionItems(collectionKey) {
+    const data = await this.request(
+      'GET',
+      `/library/metadata/${collectionKey}/children`,
+    );
+    return asList(data?.MediaContainer?.Metadata).map((item) => mapLibraryItem(item, null));
+  }
+
+  async setItemSummary(ratingKey, summary) {
+    await this.request('PUT', `/library/metadata/${ratingKey}`, {
+      query: { 'summary.value': summary == null ? '' : String(summary) },
+    });
+    return { ok: true };
+  }
+
+  async createPlaylist({ title, ratingKeys }) {
+    const keys = (ratingKeys || []).map(String).filter(Boolean);
+    if (!keys.length) throw new Error('A playlist needs at least one library item');
+    const machineId = await this.machineId();
+    const data = await this.request('POST', '/playlists', {
+      query: {
+        type: 'video',
+        title: String(title || 'Recommendations'),
+        smart: 0,
+        uri: this.libraryItemUri(machineId, keys),
+      },
+    });
+    const item = asList(data?.MediaContainer?.Metadata)[0];
+    if (!item?.ratingKey) throw new Error('Plex did not return a playlist');
+    return {
+      ratingKey: String(item.ratingKey),
+      title: item.title || title,
+    };
+  }
+
+  async addPlaylistItems(playlistKey, ratingKeys) {
+    const keys = (ratingKeys || []).map(String).filter(Boolean);
+    if (!keys.length) return { ok: true };
+    const machineId = await this.machineId();
+    await this.request('PUT', `/playlists/${playlistKey}/items`, {
+      query: { uri: this.libraryItemUri(machineId, keys) },
+    });
+    return { ok: true };
+  }
+
+  async removePlaylistItem(playlistKey, playlistItemId) {
+    await this.request(
+      'DELETE',
+      `/playlists/${playlistKey}/items/${playlistItemId}`,
+    );
+    return { ok: true };
+  }
+
+  async getPlaylistItems(playlistKey) {
+    const data = await this.request('GET', `/playlists/${playlistKey}/items`);
+    return asList(data?.MediaContainer?.Metadata).map((item) => ({
+      ...mapLibraryItem(item, null),
+      playlistItemID:
+        item.playlistItemID != null ? String(item.playlistItemID) : null,
+    }));
+  }
+
+  async removeFromWatchlist(ratingKey) {
+    if (!this.token) throw new Error('Plex token is not configured');
+    const key = String(ratingKey || '').trim();
+    if (!key) throw new Error('ratingKey is required');
+    let lastError = null;
+    for (const base of DISCOVER_BASES) {
+      try {
+        await this.accountRequest('PUT', base, '/actions/removeFromWatchlist', {
+          query: { ratingKey: key },
+        });
+        return { ok: true, ratingKey: key };
+      } catch (err) {
+        lastError = err.message;
+      }
+    }
+    throw new Error(lastError || 'Plex removeFromWatchlist failed');
   }
 
   websocketUrl() {
