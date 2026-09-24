@@ -202,6 +202,19 @@ Trailers &amp; Adverts → 1 random</pre>
     <p class="muted" style="margin-top:1rem">Plex plays this sequence when Cinema Trailers are enabled on the client and the movie library. Paths must be readable by the Plex Media Server process. Path mapping lives in this tool’s Settings.</p>`;
 }
 
+function formatBucketScanError(raw) {
+  if (!raw) return null;
+  try {
+    const err = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!err?.message) return null;
+    const code = err.code ? ` (${err.code})` : '';
+    const at = err.path ? ` — ${err.path}` : '';
+    return `${err.message}${code}${at}`;
+  } catch {
+    return String(raw);
+  }
+}
+
 export function renderBuckets({
   buckets,
   editing,
@@ -224,11 +237,16 @@ export function renderBuckets({
             const badge = b.enabled
               ? `<span class="badge ok">On</span>`
               : `<span class="badge">Off</span>`;
+            const scanErr = formatBucketScanError(b.scan_error);
+            const scanErrBlock = scanErr
+              ? `<div class="flash flash-error" style="margin-top:0.35rem;padding:0.35rem 0.5rem">${escapeHtml(scanErr)}</div>`
+              : '';
             return `<li class="list-row">
               <div>
                 <strong>${escapeHtml(b.name)}</strong> ${badge}
                 <div class="muted">${escapeHtml(b.folder_path)}</div>
                 <div class="muted">${Number(b.video_count) || 0} videos${b.description ? ` · ${escapeHtml(b.description)}` : ''}</div>
+                ${scanErrBlock}
               </div>
               <div class="row-actions">
                 <a class="btn ghost" href="${basePath}?tab=buckets&amp;bucket=${b.id}">Open</a>
@@ -295,6 +313,10 @@ function bucketForm(bucket, basePath) {
 }
 
 export function renderBucketItems(bucket, items, basePath) {
+  const scanErr = formatBucketScanError(bucket.scan_error);
+  const scanErrBlock = scanErr
+    ? `<div class="flash flash-error" style="margin-bottom:0.75rem">${escapeHtml(scanErr)}</div>`
+    : '';
   const rows =
     (items || []).length === 0
       ? `<p class="muted">No videos found. Check the folder path and click Rescan.</p>`
@@ -337,6 +359,7 @@ export function renderBucketItems(bucket, items, basePath) {
         <button type="submit">Rescan folder</button>
       </form>
     </div>
+    ${scanErrBlock}
     ${rows}
   </section>`;
 }

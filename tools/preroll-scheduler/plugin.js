@@ -134,6 +134,21 @@ async function handlePost(ctx, req, query) {
     if (action === 'bucket_rescan') {
       const id = Number(req.body.id);
       const items = service.scanBucket(id);
+      const bucket = service.getBucket(id);
+      if (bucket?.scan_error) {
+        let detail = 'Scan failed';
+        try {
+          const err = JSON.parse(bucket.scan_error);
+          detail = err.message || detail;
+        } catch {
+          // ignore
+        }
+        return {
+          redirect: `${APP}?tab=buckets&bucket=${id}`,
+          flash: 'error',
+          message: detail,
+        };
+      }
       return {
         redirect: `${APP}?tab=buckets&bucket=${id}`,
         flash: 'ok',

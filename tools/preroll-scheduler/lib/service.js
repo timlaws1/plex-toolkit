@@ -142,7 +142,19 @@ export class PrerollService {
   scanBucket(bucketId) {
     const bucket = this.getBucket(bucketId);
     if (!bucket) throw new Error('Bucket not found');
-    const found = this.fs.listVideos(bucket.folder_path);
+    const { entries: found, error: scanError } = this.fs.listVideos(
+      bucket.folder_path,
+    );
+    this.sql
+      .prepare(
+        `UPDATE preroll_buckets SET scan_error = ?, updated_at = datetime('now') WHERE id = ?`,
+      )
+      .run(scanError ? JSON.stringify(scanError) : null, bucketId);
+    if (scanError) {
+      this.logger.warn(
+        `Bucket scan failed for ${bucket.folder_path}: ${scanError.code} ${scanError.message} (${scanError.path})`,
+      );
+    }
     const foundMap = new Map(found.map((f) => [f.relativePath, f]));
 
     const existing = this.listItems(bucketId);

@@ -303,6 +303,12 @@ CREATE INDEX IF NOT EXISTS idx_rec_items_schedule ON rec_items(schedule_id, acti
 CREATE INDEX IF NOT EXISTS idx_rec_activity_film ON rec_letterboxd_activity(film_id);
 `,
   },
+  {
+    id: 6,
+    sql: `
+ALTER TABLE preroll_buckets ADD COLUMN scan_error TEXT;
+`,
+  },
 ];
 
 export function openDatabase(dbPath) {

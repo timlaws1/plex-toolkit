@@ -15,21 +15,65 @@ const VIDEO_EXT = new Set([
 ]);
 
 /**
+ * @typedef {{ relativePath: string, filename: string, sizeBytes: number, mtimeMs: number, durationMs: number|null }} VideoEntry
+ * @typedef {{ code: string, message: string, path: string }} ScanError
+ * @typedef {{ entries: VideoEntry[], error: ScanError|null }} ScanResult
+ */
+
+/**
  * Recursively list video files under folderPath (caller must already guard roots).
+ * @returns {ScanResult}
  */
 export function scanBucketFolder(folderPath) {
   const root = path.resolve(folderPath);
-  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
-    return [];
+
+  if (!fs.existsSync(root)) {
+    return {
+      entries: [],
+      error: {
+        code: 'ENOENT',
+        message: 'Path does not exist',
+        path: root,
+      },
+    };
+  }
+
+  let rootStat;
+  try {
+    rootStat = fs.statSync(root);
+  } catch (err) {
+    return {
+      entries: [],
+      error: scanErrorFrom(err, root),
+    };
+  }
+
+  if (!rootStat.isDirectory()) {
+    return {
+      entries: [],
+      error: {
+        code: 'ENOTDIR',
+        message: 'Path is not a directory',
+        path: root,
+      },
+    };
   }
 
   const results = [];
+  /** @type {ScanError|null} */
+  let firstError = null;
+
+  function recordError(err, atPath) {
+    if (firstError) return;
+    firstError = scanErrorFrom(err, atPath);
+  }
 
   function walk(dir) {
     let entries;
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      recordError(err, dir);
       return;
     }
     for (const ent of entries) {
@@ -45,7 +89,8 @@ export function scanBucketFolder(folderPath) {
       let st;
       try {
         st = fs.statSync(full);
-      } catch {
+      } catch (err) {
+        recordError(err, full);
         continue;
       }
       const relativePath = path.relative(root, full).split(path.sep).join('/');
@@ -65,7 +110,15 @@ export function scanBucketFolder(folderPath) {
 
   walk(root);
   results.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
-  return results;
+  return { entries: results, error: firstError };
+}
+
+function scanErrorFrom(err, atPath) {
+  return {
+    code: err?.code || 'EIO',
+    message: err?.message || String(err),
+    path: atPath,
+  };
 }
 
 export function readMp4DurationMsHost(filePath) {
