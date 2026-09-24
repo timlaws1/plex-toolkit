@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { config, ensureDataDirs } from './config.js';
 import { openDatabase } from './db/index.js';
 import { ensureSecretKey, createSecrets } from './crypto/secrets.js';
@@ -21,6 +23,7 @@ async function main() {
   ensureDataDirs();
   const db = openDatabase(config.dbPath);
   const log = createLogger(config.logsDir, db);
+  warnMediaRoots(config.mediaRoots, log);
 
   const key = ensureSecretKey(config.secretKeyPath, process.env.SECRET_KEY);
   const secrets = createSecrets(key);
@@ -114,3 +117,34 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
+function warnMediaRoots(roots, logger) {
+  if (!roots?.length) return;
+  for (const root of roots) {
+    const resolved = path.resolve(root);
+    if (!fs.existsSync(resolved)) {
+      logger.warn(`MEDIA_ROOTS: path does not exist: ${resolved}`);
+      continue;
+    }
+    let st;
+    try {
+      st = fs.statSync(resolved);
+    } catch (err) {
+      logger.warn(
+        `MEDIA_ROOTS: cannot stat ${resolved}: ${err.code || 'UNKNOWN'} ${err.message}`,
+      );
+      continue;
+    }
+    if (!st.isDirectory()) {
+      logger.warn(`MEDIA_ROOTS: path is not a directory: ${resolved}`);
+      continue;
+    }
+    try {
+      fs.readdirSync(resolved);
+    } catch (err) {
+      logger.warn(
+        `MEDIA_ROOTS: not readable ${resolved}: ${err.code || 'UNKNOWN'} ${err.message}`,
+      );
+    }
+  }
+}

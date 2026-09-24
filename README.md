@@ -148,6 +148,22 @@ volumes:
 
 Then use `/prerolls/idents` (etc.) as bucket folder paths. If Plex sees those files as `D:\Plex\prerolls\idents\…`, set Toolkit prefix `/prerolls` and Plex prefix `D:\Plex\prerolls` in tool Settings. When `MEDIA_ROOTS` is unset (local `npm run dev`), bucket paths are unrestricted.
 
+**Troubleshooting:** Bucket folder paths must be the **container-side** path (for example `/prerolls/idents`), not the host path (for example `/mnt/Thunderhat/PreRoll`). If a bind mount is owned by a different UID than the container’s `node` user, scans fail with a permission error — that message appears on the **Buckets** screen and in `docker logs` (and at startup when `MEDIA_ROOTS` is set).
+
+Quick start without compose:
+
+```bash
+docker run -d --name plex-toolkit -p 8787:8787 \
+  -e ADMIN_PASSWORD=changeme \
+  -e DATA_DIR=/data \
+  -v ./data:/data \
+  -v /path/to/your/prerolls:/prerolls \
+  -e MEDIA_ROOTS=/prerolls \
+  ghcr.io/timlaws1/plex-toolkit:latest
+```
+
+Set a strong `ADMIN_PASSWORD`. Optional: `-e PUBLIC_URL=…`, `-e PLEX_CLIENT_ID=…`.
+
 ## Install from source
 
 ```bash

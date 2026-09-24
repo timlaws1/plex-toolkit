@@ -136,7 +136,7 @@ The host passes a facade only. Tools do not receive the Plex token, filesystem a
 
 Scoped to `MEDIA_ROOTS` when that env var is set (semicolon-separated absolute paths). When unset, paths are unrestricted (local development).
 
-- `ctx.fs.listVideos(dir)` — recursive video file listing (relative paths, size, mtime, optional MP4 duration)
+- `ctx.fs.listVideos(dir)` — recursive video file listing; returns `{ entries, error }` where `entries` are `{ relativePath, filename, sizeBytes, mtimeMs, durationMs? }` and `error` is `null` or `{ code, message, path }` when the path is missing, not a directory, or unreadable
 - `ctx.fs.stat(absPath)`
 - `ctx.fs.exists(absPath)`
 - `ctx.fs.createReadStream(absPath, opts)`

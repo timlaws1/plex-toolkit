@@ -13,17 +13,17 @@ services:
       # Optional stable OAuth client id (otherwise generated under /data/config/client.id)
       PLEX_CLIENT_ID: ${PLEX_CLIENT_ID:-}
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8787}
-      # Optional: restrict fs.read tools (Preroll) to these roots
-      # MEDIA_ROOTS: /prerolls
+      # Restrict fs.read tools (Preroll) to mounted preroll roots — see README “Preroll Scheduler”
+      MEDIA_ROOTS: /prerolls
     volumes:
       - ./data:/data
-      # Optional: preroll media for Preroll Scheduler
-      # - ./prerolls:/prerolls
+      # Preroll media for Preroll Scheduler (container path /prerolls — not the host path)
+      - ./prerolls:/prerolls
       # Optional: lets Home → Update replace this container.
       # DOCKER_GID is the group that owns /var/run/docker.sock on the host.
-       - /var/run/docker.sock:/var/run/docker.sock
-     group_add:
-       - "${DOCKER_GID}"
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

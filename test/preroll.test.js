@@ -28,6 +28,7 @@ import {
   extractSqlTableNames,
 } from '../src/plugins/sql-scope.js';
 import { createPluginApi } from '../src/plugins/api.js';
+import { scanBucketFolder } from '../src/plugins/fs-media.js';
 import { validateManifest } from '../src/plugins/manifest.js';
 import { openDatabase } from '../src/db/index.js';
 import { createLogger } from '../src/log.js';
@@ -381,7 +382,43 @@ test('plugin api fs.read enforces media roots', () => {
     scheduler: new Scheduler(log),
     mediaRoots: [allowed],
   });
-  assert.deepEqual(api.fs.listVideos(allowed), []);
+  assert.deepEqual(api.fs.listVideos(allowed), { entries: [], error: null });
   assert.throws(() => api.fs.listVideos(path.join(dir, 'other')), /outside/);
   db.close();
+});
+
+test('scanBucketFolder reports missing path', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-scan-'));
+  const missing = path.join(dir, 'nope');
+  const result = scanBucketFolder(missing);
+  assert.equal(result.entries.length, 0);
+  assert.ok(result.error);
+  assert.equal(result.error.code, 'ENOENT');
+  assert.equal(result.error.path, path.resolve(missing));
+});
+
+test('scanBucketFolder reports non-directory path', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-scan-file-'));
+  const file = path.join(dir, 'not-a-dir.txt');
+  fs.writeFileSync(file, 'x');
+  const result = scanBucketFolder(file);
+  assert.equal(result.entries.length, 0);
+  assert.ok(result.error);
+  assert.equal(result.error.code, 'ENOTDIR');
+});
+
+test('scanBucketFolder captures unreadable directory', { skip: process.platform === 'win32' }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-scan-deny-'));
+  const secret = path.join(dir, 'locked');
+  fs.mkdirSync(secret);
+  fs.chmodSync(secret, 0o000);
+  try {
+    const result = scanBucketFolder(secret);
+    assert.equal(result.entries.length, 0);
+    assert.ok(result.error);
+    assert.equal(result.error.code, 'EACCES');
+    assert.equal(result.error.path, path.resolve(secret));
+  } finally {
+    fs.chmodSync(secret, 0o700);
+  }
 });
