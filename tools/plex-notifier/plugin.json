@@ -1,7 +1,7 @@
 {
   "id": "plex-notifier",
   "name": "Plex Notifier",
-  "version": "1.3.3",
+  "version": "1.4.0",
   "apiVersion": 1,
   "author": "Thunderhat",
   "description": "Rank most-watched actors and directors from your Plex library, search people, track favourites, and email when they (or watchlist titles) appear on Freeview.",
@@ -104,50 +104,12 @@
       "help": "Required to search and match tracked actors/directors against Freeview. Get a free key from themoviedb.org."
     },
     {
-      "key": "smtpHost",
+      "key": "digestTo",
       "type": "string",
-      "label": "SMTP host",
+      "label": "Send digests to",
       "default": "",
       "section": "Email",
-      "pairWith": "smtpPort"
-    },
-    {
-      "key": "smtpPort",
-      "type": "number",
-      "label": "SMTP port",
-      "default": 587,
-      "min": 1,
-      "max": 65535,
-      "section": "Email"
-    },
-    {
-      "key": "smtpUser",
-      "type": "string",
-      "label": "SMTP username",
-      "default": "",
-      "section": "Email"
-    },
-    {
-      "key": "smtpPassword",
-      "type": "secret",
-      "label": "SMTP password",
-      "section": "Email",
-      "help": "Leave blank when saving to keep the current password."
-    },
-    {
-      "key": "smtpFrom",
-      "type": "string",
-      "label": "From address",
-      "default": "",
-      "section": "Email",
-      "pairWith": "smtpTo"
-    },
-    {
-      "key": "smtpTo",
-      "type": "string",
-      "label": "To address",
-      "default": "",
-      "section": "Email"
+      "help": "Leave blank to use the default recipient on the Mail page. The mail server is set up there too."
     },
     {
       "key": "epgUrl",

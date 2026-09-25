@@ -10,7 +10,7 @@ function versionBlock(version) {
     </div>`;
 }
 
-export function layout({ title, body, flash, user, nav, version }) {
+export function layout({ title, body, flash, user, nav, version, pinned = [], currentPath = '' }) {
   const flashHtml = flash
     ? `<div class="flash flash-${escapeHtml(flash.type)}">${escapeHtml(flash.message)}</div>`
     : '';
@@ -19,13 +19,25 @@ export function layout({ title, body, flash, user, nav, version }) {
     { href: '/', id: 'dashboard', label: 'Home' },
     { href: '/plex', id: 'plex', label: 'Plex' },
     { href: '/plugins', id: 'plugins', label: 'Tools' },
+    { href: '/mail', id: 'mail', label: 'Mail' },
   ];
 
-  const navLinks = links
+  const activePin = pinned.find((tool) =>
+    currentPath.startsWith(`/plugins/${encodeURIComponent(tool.id)}`),
+  );
+  const pinnedLinks = pinned
     .map(
-      (item) =>
-        `<a href="${item.href}" class="${nav === item.id ? 'active' : ''}">${item.label}</a>`,
+      (tool) =>
+        `<a href="${escapeHtml(tool.href)}" class="nav-sub${activePin?.id === tool.id ? ' active' : ''}">${escapeHtml(tool.name)}</a>`,
     )
+    .join('');
+
+  const navLinks = links
+    .map((item) => {
+      const active = nav === item.id && !(item.id === 'plugins' && activePin);
+      const link = `<a href="${item.href}" class="${active ? 'active' : ''}">${item.label}</a>`;
+      return item.id === 'plugins' ? link + pinnedLinks : link;
+    })
     .join('');
 
   const sidebar = user
@@ -201,6 +213,22 @@ export function renderSettingField(field, settings, libraries = [], shows = []) 
     return `<div class="field">
       <label>${escapeHtml(field.label || field.key)}</label>
       <div class="checks">${checks}</div>
+      ${help}
+    </div>`;
+  }
+
+  if (field.type === 'multiSelect') {
+    const selected = new Set((Array.isArray(value) ? value : []).map(String));
+    const checks = (field.options || [])
+      .map((option) => {
+        const id = typeof option === 'object' ? option.value : option;
+        const label = typeof option === 'object' ? option.label : option;
+        return `<label><input type="checkbox" name="${escapeHtml(field.key)}" value="${escapeHtml(id)}" ${selected.has(String(id)) ? 'checked' : ''} /> ${escapeHtml(label)}</label>`;
+      })
+      .join('');
+    return `<div class="field">
+      <label>${escapeHtml(field.label || field.key)}</label>
+      <div class="checks checks-grid">${checks}</div>
       ${help}
     </div>`;
   }

@@ -309,6 +309,15 @@ CREATE INDEX IF NOT EXISTS idx_rec_activity_film ON rec_letterboxd_activity(film
 ALTER TABLE preroll_buckets ADD COLUMN scan_error TEXT;
 `,
   },
+  {
+    id: 7,
+    sql: `
+ALTER TABLE plugins ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE rec_schedules ADD COLUMN certificate_max TEXT;
+ALTER TABLE rec_tmdb_movies ADD COLUMN certification TEXT;
+UPDATE rec_schedules SET output_type = 'email' WHERE output_type = 'watchlist';
+`,
+  },
 ];
 
 export function openDatabase(dbPath) {

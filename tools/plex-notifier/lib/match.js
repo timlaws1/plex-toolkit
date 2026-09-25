@@ -792,12 +792,13 @@ export async function sendDigest(ctx) {
     ctx.storage.set(DIGEST_KEY, kept);
   }
 
-  if (!settings.smtpHost || !settings.smtpTo || !settings.smtpFrom) {
-    throw new Error('Configure SMTP host, from, and to addresses in settings');
+  const to = String(settings.digestTo || '').trim() || ctx.mail.defaultTo();
+  if (!ctx.mail.isConfigured() || !to) {
+    throw new Error('Set up the mail server and a recipient on the Mail page');
   }
 
   const { subject, text, html } = renderDigestEmail(kept);
-  await ctx.mail.send({ subject, text, html });
+  await ctx.mail.send({ to, subject, text, html });
 
   const sent = new Set(ctx.storage.get(SENT_KEY) || []);
   for (const item of kept) sent.add(item.notifyKey);

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { config, ensureDataDirs } from './config.js';
 import { openDatabase } from './db/index.js';
 import { ensureSecretKey, createSecrets } from './crypto/secrets.js';
+import { migrateLegacyMail } from './mail/settings.js';
 import { createLogger } from './log.js';
 import { EventBus } from './events/bus.js';
 import { PlexClient } from './plex/client.js';
@@ -27,6 +28,9 @@ async function main() {
 
   const key = ensureSecretKey(config.secretKeyPath, process.env.SECRET_KEY);
   const secrets = createSecrets(key);
+  if (migrateLegacyMail(db, secrets)) {
+    log.info('Copied Plex Notifier SMTP settings to the Mail page');
+  }
   const clientId = ensureClientId(config.clientIdPath, config.plexClientId);
   const bus = new EventBus();
   const panels = new Map();

@@ -184,7 +184,9 @@ Key-value store scoped to the tool id:
 
 ### Mail (`mail.send`)
 
-- `ctx.mail.send({ to, subject, text, html, from })` — uses the tool's SMTP settings (`smtpHost`, `smtpPort`, `smtpUser`, `smtpPassword`, `smtpFrom`, `smtpTo`, optional `smtpSecure`)
+- `ctx.mail.send({ to, subject, text, html, from })` — sends through the host mail server on the **Mail** page; `to` and `from` fall back to the addresses saved there
+- `ctx.mail.isConfigured()` — true when a mail host and from address are saved
+- `ctx.mail.defaultTo()` — the default recipient from the Mail page
 
 ### Change batches / undo (`changes`)
 

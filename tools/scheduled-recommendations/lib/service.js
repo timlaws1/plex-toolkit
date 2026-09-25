@@ -1,18 +1,22 @@
 import { COOLDOWN_DAYS, buildTaste, selectRecommendations, titleKey, tmdbIdFromGuids } from './engine.js';
+import { renderRecommendationEmail } from './email.js';
 import { filmsFromExportZip } from './letterboxd.js';
 import { publishPicks, removePublishedItem } from './publish.js';
+import { toBbfc } from './ratings.js';
 import { activityRssUrl, parseLetterboxdRss } from './rss.js';
-import { isScheduleDue, slotDate } from './schedule.js';
+import { effectiveOutput, isScheduleDue, slotDate } from './schedule.js';
+import { matchSelectedServices } from './services.js';
 import { createStore, parseJsonList, syntheticUri } from './store.js';
 import { cacheFresh, createTmdbClient, mapTmdbMovie, MOVIE_TTL_MS, PROVIDER_TTL_MS, providerNames } from './tmdb.js';
 
 export class RecommendationsService {
-  constructor({ sql, plex, log, fetchFn, getSettings, now = () => new Date() }) {
+  constructor({ sql, plex, log, fetchFn, getSettings, mail = null, now = () => new Date() }) {
     this.store = createStore(sql);
     this.plex = plex;
     this.log = log;
     this.fetchFn = fetchFn;
     this.getSettings = getSettings;
+    this.mail = mail;
     this.now = now;
     this.running = false;
   }
@@ -91,6 +95,17 @@ export class RecommendationsService {
     return this.runSchedule(schedule, slot);
   }
 
+  /**
+   * Pick films for a schedule without publishing, emailing, or recording a run.
+   */
+  async preview(scheduleId) {
+    const schedule = this.store.getSchedule(scheduleId);
+    if (!schedule) throw new Error('Schedule not found');
+    await this.resolveTmdb(20);
+    const picks = await this.recommend(schedule, schedule.film_count);
+    return { schedule, picks };
+  }
+
   async onMovieWatched(payload) {
     const ratingKey = String(payload?.ratingKey || '');
     if (!ratingKey) return;
@@ -105,7 +120,7 @@ export class RecommendationsService {
       } catch (err) {
         this.log.warn(`Could not remove ${item.title} from Plex: ${err.message}`);
       }
-      if (!Number(schedule.replace_on_watch)) continue;
+      if (!Number(schedule.replace_on_watch) || effectiveOutput(schedule) === 'email') continue;
       try {
         const [pick] = await this.recommend(schedule, 1);
         if (!pick) continue;
@@ -123,24 +138,46 @@ export class RecommendationsService {
     await this.resolveTmdb(20);
     const picks = await this.recommend(schedule, schedule.film_count);
     this.log.info(`Generating ${picks.length} recommendations`);
-    const owned = this.store.ownedPlexKeys(schedule.id);
-      const published = await publishPicks(this.plex, schedule, picks, owned, (destinationId) => {
+    const output = effectiveOutput(schedule);
+    const plexCount = picks.filter((pick) => pick.inLibrary).length;
+    const streamingCount = picks.length - plexCount;
+    if (plexCount) this.log.info(`Matched ${plexCount} recommendations to Plex library`);
+    if (streamingCount) this.log.info(`Found ${streamingCount} streaming recommendation${streamingCount === 1 ? '' : 's'}`);
+    this.log.info(`Publishing to ${labelOutput(output)}`);
+
+    let warning = null;
+    if (output === 'email') {
+      warning = await this.emailPicks(schedule, picks);
+    } else {
+      const owned = this.store.ownedPlexKeys(schedule.id);
+      const published = await publishPicks(this.plex, { ...schedule, output_type: output }, picks, owned, (destinationId) => {
         this.store.setDestination(schedule.id, destinationId, schedule.name);
         schedule.plex_destination_id = destinationId;
       });
-    if (published.destinationId && published.destinationId !== schedule.plex_destination_id) {
-      this.store.setDestination(schedule.id, published.destinationId, schedule.name);
-      schedule.plex_destination_id = published.destinationId;
+      if (published.destinationId && published.destinationId !== schedule.plex_destination_id) {
+        this.store.setDestination(schedule.id, published.destinationId, schedule.name);
+        schedule.plex_destination_id = published.destinationId;
+      }
+      warning = published.warning || null;
     }
-    const plexCount = published.plexCount || 0;
-    const streamingCount = picks.filter((pick) => !pick.inLibrary).length;
-    if (plexCount) this.log.info(`Matched ${plexCount} recommendations to Plex library`);
-    if (streamingCount) this.log.info(`Found ${streamingCount} streaming recommendation${streamingCount === 1 ? '' : 's'}`);
-    this.log.info(`Publishing to ${labelOutput(schedule.output_type)}`);
-    const runId = this.store.recordRun(schedule.id, slot, 'ok', published.warning || `${picks.length} films`);
+    const runId = this.store.recordRun(schedule.id, slot, 'ok', warning || `${picks.length} films`);
     this.store.replaceActiveItems(schedule.id, runId, picks);
     this.log.info('Schedule completed');
     return picks;
+  }
+
+  /** @returns {Promise<string|null>} warning when nothing was sent */
+  async emailPicks(schedule, picks) {
+    if (!picks.length) return 'No films matched, so no email was sent';
+    if (!this.mail?.isConfigured()) {
+      throw new Error('Set up outgoing mail on the Mail page to email recommendations');
+    }
+    const to = String(this.getSettings()?.emailTo || '').trim() || this.mail.defaultTo();
+    if (!to) throw new Error('Add a recipient in tool settings or on the Mail page');
+    const { subject, text, html } = renderRecommendationEmail(schedule, picks);
+    await this.mail.send({ to, subject, text, html });
+    this.log.info(`Emailed ${picks.length} recommendations to ${to}`);
+    return null;
   }
 
   async recommend(schedule, count) {
@@ -182,12 +219,16 @@ export class RecommendationsService {
         directors: movie.directors?.length ? names(movie.directors) : meta?.directors || [],
         actors: movie.roles?.length ? names(movie.roles) : meta?.actors || [],
         voteAverage: meta?.voteAverage ?? null,
+        certificate: toBbfc(movie.contentRating) || toBbfc(meta?.certification),
         similarToLiked: Boolean(tmdbId && similarLiked.has(tmdbId)),
         provider: 'Plex',
+        providers: ['Plex'],
       });
     }
 
-    if (Number(schedule.allow_streaming) && schedule.output_type === 'watchlist') {
+    const output = effectiveOutput(schedule);
+    const services = this.selectedServices();
+    if (Number(schedule.allow_streaming) && output === 'email' && services.length) {
       for (const id of similarLiked) {
         if (seen.has(`tmdb:${id}`)) continue;
         const meta = this.cachedMovie(id);
@@ -195,7 +236,8 @@ export class RecommendationsService {
         const key = titleKey(meta.title, meta.year);
         if (seen.has(key) || watched.has(key) || watched.has(`tmdb:${id}`)) continue;
         seen.add(key);
-        const names = await this.streamingNames(id);
+        const matched = matchSelectedServices(await this.streamingNames(id), services);
+        if (!matched.length) continue;
         candidates.push({
           key,
           title: meta.title,
@@ -210,8 +252,10 @@ export class RecommendationsService {
           directors: meta.directors,
           actors: meta.actors,
           voteAverage: meta.voteAverage,
+          certificate: toBbfc(meta.certification),
           similarToLiked: true,
-          provider: names[0] || 'Streaming',
+          provider: matched[0],
+          providers: matched,
         });
       }
     }
@@ -227,19 +271,15 @@ export class RecommendationsService {
       ratingMax: schedule.rating_max,
       preferPlex: Number(schedule.prefer_plex) === 1,
       allowStreaming: Number(schedule.allow_streaming) === 1,
-      output: schedule.output_type,
+      output,
+      certificateMax: schedule.certificate_max,
     });
-
-    if (schedule.output_type === 'watchlist') {
-      for (const pick of picks) {
-        pick.discoverRatingKey = await this.discoverKey(pick);
-        if (!pick.inLibrary && pick.provider === 'Streaming') {
-          const names = pick.tmdbId ? await this.streamingNames(pick.tmdbId) : [];
-          if (names[0]) pick.provider = names[0];
-        }
-      }
-    }
     return picks;
+  }
+
+  selectedServices() {
+    const value = this.getSettings()?.streamingServices;
+    return Array.isArray(value) ? value.map(String) : [];
   }
 
   async loadLibrary() {
@@ -301,18 +341,6 @@ export class RecommendationsService {
     }
   }
 
-  async discoverKey(pick) {
-    try {
-      const results = await this.plex.searchDiscover(`${pick.title} ${pick.year || ''}`.trim(), { limit: 8 });
-      const movies = results.filter((row) => row.type === 'movie');
-      const exact = movies.find((row) => titleKey(row.title, row.year) === titleKey(pick.title, pick.year));
-      return (exact || movies[0])?.ratingKey || null;
-    } catch (err) {
-      this.log.warn(`Discover search failed for ${pick.title}: ${err.message}`);
-      return null;
-    }
-  }
-
   async resolveTmdb(limit) {
     const client = this.tmdb();
     if (!client) return;
@@ -342,7 +370,9 @@ export class RecommendationsService {
   async ensureMovie(tmdbId, client = this.tmdb()) {
     if (!client || !tmdbId) return null;
     const existing = this.store.getTmdb(tmdbId);
-    if (existing && cacheFresh(existing.fetched_at, MOVIE_TTL_MS)) return movieFromRow(existing);
+    if (existing && existing.certification != null && cacheFresh(existing.fetched_at, MOVIE_TTL_MS)) {
+      return movieFromRow(existing);
+    }
     try {
       const mapped = mapTmdbMovie(await client.movie(tmdbId));
       this.store.saveTmdb(mapped);
@@ -371,6 +401,7 @@ function movieFromRow(row) {
     directors: parseJsonList(row.directors),
     actors: parseJsonList(row.actors),
     similarIds: parseJsonList(row.similar_ids),
+    certification: row.certification ?? null,
   };
 }
 
@@ -390,6 +421,6 @@ function splitTags(value) {
 
 function labelOutput(output) {
   if (output === 'playlist') return 'Plex playlist';
-  if (output === 'watchlist') return 'Plex watchlist';
+  if (output === 'email') return 'email';
   return 'Plex collection';
 }

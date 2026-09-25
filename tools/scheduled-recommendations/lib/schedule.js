@@ -1,3 +1,5 @@
+import { normaliseCap } from './ratings.js';
+
 export const WEEKDAYS = [
   { id: 0, label: 'Sun' },
   { id: 1, label: 'Mon' },
@@ -19,7 +21,7 @@ export const PRESETS = {
     allowStreaming: true,
     preferPlex: true,
     genres: '',
-    output: 'collection',
+    output: 'email',
   },
   'film-night': {
     name: 'Film Night',
@@ -55,7 +57,7 @@ export const PRESETS = {
     allowStreaming: true,
     preferPlex: true,
     genres: '',
-    output: 'playlist',
+    output: 'email',
   },
 };
 
@@ -109,12 +111,27 @@ export function formatWhen(schedule) {
   return `${labels.join(', ')} ${schedule.time_local || ''}`.trim();
 }
 
+export const OUTPUTS = [
+  { id: 'collection', label: 'Plex collection' },
+  { id: 'playlist', label: 'Plex playlist' },
+  { id: 'email', label: 'Email' },
+];
+
+/**
+ * Streaming titles are not in the Plex library, so a schedule that includes them can only email.
+ */
+export function effectiveOutput(schedule) {
+  if (Number(schedule.allow_streaming)) return 'email';
+  const output = String(schedule.output_type || '');
+  if (output === 'watchlist') return 'email';
+  return OUTPUTS.some((row) => row.id === output) ? output : 'collection';
+}
+
 export function scheduleFromBody(body) {
   const days = WEEKDAYS.map((day) => day.id).filter((id) => body[`day_${id}`] === '1' || body[`day_${id}`] === 'on');
   const count = Math.min(10, Math.max(1, Number(body.film_count || 1)));
-  const output = ['collection', 'playlist', 'watchlist'].includes(body.output_type)
-    ? body.output_type
-    : 'collection';
+  const allowStreaming = body.allow_streaming === '1' || body.allow_streaming === 'on' ? 1 : 0;
+  const output = effectiveOutput({ allow_streaming: allowStreaming, output_type: body.output_type });
   return {
     name: String(body.name || '').trim(),
     enabled: body.enabled === '1' || body.enabled === 'on' ? 1 : 0,
@@ -124,7 +141,7 @@ export function scheduleFromBody(body) {
     runtime_min: intOrNull(body.runtime_min),
     runtime_max: intOrNull(body.runtime_max),
     prefer_plex: body.prefer_plex === '1' || body.prefer_plex === 'on' ? 1 : 0,
-    allow_streaming: body.allow_streaming === '1' || body.allow_streaming === 'on' ? 1 : 0,
+    allow_streaming: allowStreaming,
     genres: String(body.genres || '').trim(),
     excluded_genres: String(body.excluded_genres || '').trim(),
     rating_min: numOrNull(body.rating_min),
@@ -132,7 +149,8 @@ export function scheduleFromBody(body) {
     output_type: output,
     plex_section_id: String(body.plex_section_id || '').trim() || null,
     replace_on_watch: body.replace_on_watch === '1' || body.replace_on_watch === 'on' ? 1 : 0,
-    remove_watchlist: body.remove_watchlist === '1' || body.remove_watchlist === 'on' ? 1 : 0,
+    remove_watchlist: 0,
+    certificate_max: normaliseCap(body.certificate_max),
     preset: String(body.preset || '').trim() || null,
   };
 }

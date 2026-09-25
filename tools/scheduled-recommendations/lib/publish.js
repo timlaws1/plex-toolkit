@@ -2,17 +2,6 @@ import { MANAGED_SUMMARY } from './engine.js';
 
 export async function publishPicks(plex, schedule, picks, ownedKeys, onDestination) {
   const output = schedule.output_type;
-  if (output === 'watchlist') {
-    let added = 0;
-    for (const pick of picks) {
-      const key = pick.discoverRatingKey;
-      if (!key) continue;
-      await plex.addToWatchlist(key);
-      added += 1;
-    }
-    return { destinationId: schedule.plex_destination_id, added, plexCount: 0, streamingCount: added };
-  }
-
   const libraryPicks = picks.filter((pick) => pick.inLibrary && pick.plexRatingKey);
   const streamingCount = picks.length - libraryPicks.length;
   if (!libraryPicks.length) {
@@ -35,19 +24,15 @@ export async function publishPicks(plex, schedule, picks, ownedKeys, onDestinati
 }
 
 export async function removePublishedItem(plex, schedule, item) {
-  if (!item?.plex_rating_key && !item?.discover_rating_key) return;
-  if (schedule.output_type === 'collection' && schedule.plex_destination_id && item.plex_rating_key) {
+  if (!item?.plex_rating_key) return;
+  if (schedule.output_type === 'collection' && schedule.plex_destination_id) {
     await plex.removeCollectionItem(schedule.plex_destination_id, item.plex_rating_key);
     return;
   }
-  if (schedule.output_type === 'playlist' && schedule.plex_destination_id && item.plex_rating_key) {
+  if (schedule.output_type === 'playlist' && schedule.plex_destination_id) {
     const current = await plex.getPlaylistItems(schedule.plex_destination_id);
     const match = current.find((row) => row.ratingKey === item.plex_rating_key && row.playlistItemID);
     if (match) await plex.removePlaylistItem(schedule.plex_destination_id, match.playlistItemID);
-    return;
-  }
-  if (schedule.output_type === 'watchlist' && Number(schedule.remove_watchlist) && item.discover_rating_key) {
-    await plex.removeFromWatchlist(item.discover_rating_key);
   }
 }
 

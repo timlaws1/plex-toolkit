@@ -22,7 +22,7 @@ export function createTmdbClient({ apiKey, baseUrl = DEFAULT_BASE, fetchFn }) {
       return exact || results[0] || null;
     },
     async movie(id) {
-      return get(`/movie/${id}`, { append_to_response: 'credits,similar' });
+      return get(`/movie/${id}`, { append_to_response: 'credits,similar,release_dates' });
     },
     async providers(id) {
       return get(`/movie/${id}/watch/providers`);
@@ -47,14 +47,27 @@ export function mapTmdbMovie(data) {
     directors,
     actors,
     similarIds,
+    certification: gbCertification(data.release_dates),
   };
+}
+
+/** Empty string means TMDb had no GB certificate, so the film is not refetched for it. */
+export function gbCertification(releaseDates) {
+  const gb = (releaseDates?.results || []).find((row) => row.iso_3166_1 === 'GB');
+  for (const release of gb?.release_dates || []) {
+    const cert = String(release.certification || '').trim();
+    if (cert) return cert;
+  }
+  return '';
 }
 
 export function providerNames(payload, region) {
   const country = payload?.results?.[String(region || 'GB').toUpperCase()];
   const names = [];
-  for (const row of country?.flatrate || []) {
-    if (row.provider_name) names.push(row.provider_name);
+  for (const kind of ['flatrate', 'free', 'ads']) {
+    for (const row of country?.[kind] || []) {
+      if (row.provider_name && !names.includes(row.provider_name)) names.push(row.provider_name);
+    }
   }
   return names;
 }

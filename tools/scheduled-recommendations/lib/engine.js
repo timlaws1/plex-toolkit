@@ -1,3 +1,5 @@
+import { withinCap } from './ratings.js';
+
 export const COOLDOWN_DAYS = 120;
 export const MANAGED_SUMMARY = 'Managed by Plex Toolkit';
 
@@ -61,11 +63,12 @@ export function selectRecommendations(candidates, taste, options = {}) {
   const include = splitList(options.genres);
   const exclude = splitList(options.excludedGenres);
   const emptyTaste = tasteIsEmpty(taste);
-  const libraryOnly = options.output === 'collection' || options.output === 'playlist' || !options.allowStreaming;
+  const libraryOnly = options.output !== 'email' || !options.allowStreaming;
   const scored = [];
 
   for (const candidate of candidates) {
     if (candidate.watched) continue;
+    if (!withinCap(candidate.certificate, options.certificateMax)) continue;
     if (recent.has(candidate.key) || (candidate.tmdbId && recent.has(`tmdb:${candidate.tmdbId}`))) continue;
     const minutes = candidate.runtimeMinutes;
     if (options.runtimeMin != null && minutes != null && minutes < Number(options.runtimeMin)) continue;

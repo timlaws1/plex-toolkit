@@ -490,14 +490,13 @@ test('sendDigest emails only channels that pass the match rules', async () => {
     },
     settings: {
       get: () => ({
-        smtpHost: 'smtp.example.com',
-        smtpFrom: 'a@b.c',
-        smtpTo: 'd@e.f',
         restrictToDvrChannels: false,
         excludedChannels: DEFAULT_EXCLUDED_CHANNELS,
       }),
     },
     mail: {
+      isConfigured: () => true,
+      defaultTo: () => 'd@e.f',
       send: async (msg) => {
         sentMail = msg;
       },
@@ -505,6 +504,7 @@ test('sendDigest emails only channels that pass the match rules', async () => {
   };
 
   const result = await sendDigest(ctx);
+  assert.equal(sentMail.to, 'd@e.f');
   assert.equal(result.sent, 1);
   assert.equal(result.skipped, 2);
   assert.match(sentMail.html, /Inception/);

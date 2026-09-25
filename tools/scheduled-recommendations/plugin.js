@@ -1,6 +1,6 @@
 import { RecommendationsService } from './lib/service.js';
-import { scheduleFromBody } from './lib/schedule.js';
-import { blankSchedule, renderForm, renderHome } from './lib/ui.js';
+import { effectiveOutput, scheduleFromBody } from './lib/schedule.js';
+import { blankSchedule, renderForm, renderHome, renderTest } from './lib/ui.js';
 
 const APP = '/plugins/scheduled-recommendations/app';
 const HOUR_MS = 60 * 60 * 1000;
@@ -15,6 +15,7 @@ export async function activate(ctx) {
     log: ctx.log,
     fetchFn: (url, init) => ctx.fetch(url, init),
     getSettings: () => ctx.settings.get(),
+    mail: ctx.mail,
   });
 
   ctx.events.on('movie.watched', (payload) => {
@@ -49,6 +50,18 @@ export async function handleRequest(ctx, req) {
   }
   if (req.method === 'POST') return handlePost(ctx, req);
   const query = req.query || {};
+  const services = selectedServices(ctx);
+  if (query.test) {
+    const schedule = service.store.getSchedule(Number(query.test));
+    if (!schedule) return { redirect: APP, message: 'Schedule not found', flash: 'error' };
+    try {
+      const result = await service.preview(schedule.id);
+      return { title: 'Recommendations', body: renderTest({ ...result, services }) };
+    } catch (err) {
+      ctx.log.warn(`Test run failed for ${schedule.name}: ${err.message}`);
+      return { title: 'Recommendations', body: renderTest({ schedule, picks: [], services, error: err.message }) };
+    }
+  }
   if (query.new || query.edit) {
     const existing = query.edit ? service.store.getSchedule(Number(query.edit)) : null;
     const schedule = existing || blankSchedule(query.preset);
@@ -60,20 +73,32 @@ export async function handleRequest(ctx, req) {
     }
     return {
       title: 'Recommendations',
-      body: renderForm({ schedule, libraries, preset: query.preset }),
+      body: renderForm({ schedule, libraries, preset: query.preset, services }),
     };
   }
   const schedules = service.store.listSchedules();
   const lastRuns = new Map(schedules.map((schedule) => [schedule.id, service.store.lastRun(schedule.id)]));
+  const filmCount = service.store.filmCount();
   return {
     title: 'Recommendations',
     body: renderHome({
       schedules,
       lastRuns,
       importInfo: service.store.lastImport(),
-      filmCount: service.store.filmCount(),
+      filmCount,
+      setup: {
+        films: filmCount,
+        tmdb: Boolean(ctx.settings.get().tmdbApiKey),
+        services,
+        mail: ctx.mail.isConfigured(),
+      },
     }),
   };
+}
+
+function selectedServices(ctx) {
+  const value = ctx.settings.get().streamingServices;
+  return Array.isArray(value) ? value.map(String) : [];
 }
 
 async function handlePost(ctx, req) {
@@ -96,8 +121,10 @@ async function handlePost(ctx, req) {
     return { redirect: APP, message: Number(schedule.enabled) ? 'Schedule disabled' : 'Schedule enabled' };
   }
   if (action === 'run') {
+    const schedule = service.store.getSchedule(Number(body.id));
     const picks = await service.runNow(Number(body.id));
-    return { redirect: APP, message: `Published ${picks.length} recommendations` };
+    const verb = schedule && effectiveOutput(schedule) === 'email' ? 'Emailed' : 'Published';
+    return { redirect: APP, message: `${verb} ${picks.length} recommendation${picks.length === 1 ? '' : 's'}` };
   }
   if (action === 'save') {
     const fields = scheduleFromBody(body);

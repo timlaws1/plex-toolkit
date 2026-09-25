@@ -133,9 +133,11 @@ export function createStore(sql) {
     saveTmdb(movie) {
       sql.prepare(`
         INSERT INTO rec_tmdb_movies (
-          tmdb_id, title, year, runtime, vote_average, genres, directors, actors, similar_ids, fetched_at
+          tmdb_id, title, year, runtime, vote_average, genres, directors, actors, similar_ids,
+          certification, fetched_at
         ) VALUES (
-          @tmdbId, @title, @year, @runtime, @voteAverage, @genres, @directors, @actors, @similarIds, datetime('now')
+          @tmdbId, @title, @year, @runtime, @voteAverage, @genres, @directors, @actors, @similarIds,
+          @certification, datetime('now')
         )
         ON CONFLICT(tmdb_id) DO UPDATE SET
           title = excluded.title,
@@ -146,6 +148,7 @@ export function createStore(sql) {
           directors = excluded.directors,
           actors = excluded.actors,
           similar_ids = excluded.similar_ids,
+          certification = excluded.certification,
           fetched_at = datetime('now')
       `).run({
         tmdbId: movie.tmdbId,
@@ -157,6 +160,7 @@ export function createStore(sql) {
         directors: JSON.stringify(movie.directors || []),
         actors: JSON.stringify(movie.actors || []),
         similarIds: JSON.stringify(movie.similarIds || []),
+        certification: movie.certification ?? null,
       });
     },
 
@@ -194,7 +198,7 @@ export function createStore(sql) {
             excluded_genres = @excluded_genres, rating_min = @rating_min, rating_max = @rating_max,
             output_type = @output_type, plex_section_id = @plex_section_id,
             replace_on_watch = @replace_on_watch, remove_watchlist = @remove_watchlist,
-            preset = @preset, updated_at = datetime('now')
+            certificate_max = @certificate_max, preset = @preset, updated_at = datetime('now')
           WHERE id = @id
         `).run({ ...fields, id });
         return id;
@@ -203,11 +207,11 @@ export function createStore(sql) {
         INSERT INTO rec_schedules (
           name, enabled, days, time_local, film_count, runtime_min, runtime_max,
           prefer_plex, allow_streaming, genres, excluded_genres, rating_min, rating_max,
-          output_type, plex_section_id, replace_on_watch, remove_watchlist, preset
+          output_type, plex_section_id, replace_on_watch, remove_watchlist, certificate_max, preset
         ) VALUES (
           @name, @enabled, @days, @time_local, @film_count, @runtime_min, @runtime_max,
           @prefer_plex, @allow_streaming, @genres, @excluded_genres, @rating_min, @rating_max,
-          @output_type, @plex_section_id, @replace_on_watch, @remove_watchlist, @preset
+          @output_type, @plex_section_id, @replace_on_watch, @remove_watchlist, @certificate_max, @preset
         )
       `).run(fields);
       return Number(result.lastInsertRowid);

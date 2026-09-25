@@ -1,18 +1,18 @@
 {
   "id": "scheduled-recommendations",
   "name": "Scheduled Recommendations",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "apiVersion": 1,
   "author": "Thunderhat",
-  "description": "Taste-based film picks from your Letterboxd history, published into Plex on a schedule.",
+  "description": "Taste-based film picks from your Letterboxd history, published into Plex or emailed to you on a schedule.",
   "entry": "plugin.js",
   "permissions": [
     "plex.read",
-    "plex.discover",
     "plex.collections",
     "events.subscribe",
     "scheduler",
     "net.fetch",
+    "mail.send",
     "sql.recommendations"
   ],
   "settingsSchema": [
@@ -21,7 +21,7 @@
       "type": "secret",
       "label": "TMDb API key",
       "section": "Taste data",
-      "help": "Used to match films and read streaming availability. Recommendations still run from your Plex library if this is blank."
+      "help": "Used to match films, read age certificates, and check streaming availability. Recommendations still run from your Plex library if this is blank."
     },
     {
       "key": "watchRegion",
@@ -29,7 +29,42 @@
       "label": "Streaming region",
       "default": "GB",
       "section": "Taste data",
-      "help": "ISO country code for streaming labels, for example GB or US."
+      "help": "ISO country code for streaming availability, for example GB or US."
+    },
+    {
+      "key": "streamingServices",
+      "type": "multiSelect",
+      "label": "Your streaming services",
+      "default": [],
+      "section": "Streaming",
+      "help": "Only suggest streaming films on services you have. Schedules that include streaming titles are emailed, because those films are not in your Plex library.",
+      "options": [
+        { "value": "netflix", "label": "Netflix" },
+        { "value": "prime", "label": "Amazon Prime Video" },
+        { "value": "disney", "label": "Disney+" },
+        { "value": "apple", "label": "Apple TV+" },
+        { "value": "now", "label": "NOW" },
+        { "value": "sky", "label": "Sky Go" },
+        { "value": "paramount", "label": "Paramount+" },
+        { "value": "iplayer", "label": "BBC iPlayer" },
+        { "value": "itvx", "label": "ITVX" },
+        { "value": "channel4", "label": "Channel 4" },
+        { "value": "my5", "label": "My5" },
+        { "value": "mubi", "label": "MUBI" },
+        { "value": "britbox", "label": "BritBox" },
+        { "value": "bfi", "label": "BFI Player" },
+        { "value": "lionsgate", "label": "Lionsgate+" },
+        { "value": "shudder", "label": "Shudder" },
+        { "value": "curzon", "label": "Curzon Home Cinema" }
+      ]
+    },
+    {
+      "key": "emailTo",
+      "type": "string",
+      "label": "Send recommendation emails to",
+      "default": "",
+      "section": "Email",
+      "help": "Leave blank to use the default recipient on the Mail page."
     },
     {
       "key": "letterboxdUsername",

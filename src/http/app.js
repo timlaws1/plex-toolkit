@@ -5,6 +5,8 @@ import {
   renderGroupedSettings,
 } from './views/layout.js';
 import { getSetting, setSetting } from '../db/index.js';
+import { loadMailSettings, mailConfigured, saveMailSettings } from '../mail/settings.js';
+import { sendMail } from '../mail/smtp.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -124,6 +126,20 @@ export function createApp(ctx) {
     next();
   }
 
+  function pinnedTools() {
+    return db
+      .prepare('SELECT id, name FROM plugins WHERE pinned = 1 AND enabled = 1 ORDER BY name ASC')
+      .all()
+      .map((row) => {
+        const mod = pluginManager.runtime.getModule(row.id);
+        const hasApp =
+          typeof mod?.handleRequest === 'function' ||
+          typeof mod?.default?.handleRequest === 'function';
+        const base = `/plugins/${encodeURIComponent(row.id)}`;
+        return { id: row.id, name: row.name, href: hasApp ? `${base}/app` : base };
+      });
+  }
+
   function render(req, res, { title, nav, body }) {
     res.send(
       layout({
@@ -133,6 +149,8 @@ export function createApp(ctx) {
         flash: takeFlash(req, res),
         user: req.user,
         version: req.user ? getUpdateStatus() : null,
+        pinned: req.user ? pinnedTools() : [],
+        currentPath: req.path,
       }),
     );
   }
@@ -255,8 +273,6 @@ export function createApp(ctx) {
       )
       .join('') || '<p class="muted">No recent activity.</p>';
 
-    const webhookUrl = (publicUrl || '') + '/webhooks/plex';
-
     render(req, res, {
       title: 'Home',
       nav: 'dashboard',
@@ -297,14 +313,6 @@ export function createApp(ctx) {
           <h2 class="panel-title">Recent activity</h2>
           <div class="feed">${activityRows}</div>
         </div>
-
-        <details class="details-block">
-          <summary>Webhook URL</summary>
-          <div class="details-body">
-            <p class="muted">Point Plex webhooks here so tools can react to playback.</p>
-            <p class="mono">${escapeHtml(publicUrl ? webhookUrl : 'Set PUBLIC_URL, then /webhooks/plex')}</p>
-          </div>
-        </details>
       `,
     });
   });
@@ -423,6 +431,9 @@ docker compose up -d</pre>
         </div>`;
     } else {
       const connected = Boolean(server.last_ok_at && server.url);
+      const baseUrl = (publicUrl || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+      const webhookUrl = `${baseUrl}/webhooks/plex`;
+      const localOnly = /\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(baseUrl);
       body = `
         ${pageHeader('Plex', connected ? 'Connected and ready for tools.' : 'Signed in — finish connecting your server.')}
         <div class="panel">
@@ -449,6 +460,19 @@ docker compose up -d</pre>
             </form>
           </div>
         </div>
+        ${connected ? `<div class="panel">
+          <h2 class="panel-title">Webhook</h2>
+          <p class="panel-hint">Optional. In Plex, go to Settings → Webhooks, add this URL, and save. Tools already get playback events without it; webhooks add scrobble events (needs Plex Pass).</p>
+          <div class="copy-row">
+            <input id="webhook-url" type="text" class="mono" readonly value="${escapeHtml(webhookUrl)}" onclick="this.select()" />
+            <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('webhook-url').value).then(() => { this.textContent = 'Copied'; setTimeout(() => { this.textContent = 'Copy'; }, 1500); })">Copy</button>
+          </div>
+          ${
+            localOnly
+              ? '<p class="field-help" style="margin-top:0.5rem;color:var(--color-warn)">This address only works on this computer. Set <span class="mono">PUBLIC_URL</span> to an address your Plex server can reach, for example <span class="mono">http://192.168.1.20:8787</span>.</p>'
+              : ''
+          }
+        </div>` : ''}
         <details class="details-block">
           <summary>Connection details</summary>
           <div class="details-body">
@@ -794,6 +818,94 @@ docker compose up -d</pre>
   // Legacy no-op redirects from old manual form endpoints
   app.post('/plex', requireAuth, (_req, res) => res.redirect('/plex'));
 
+  app.get('/mail', requireAuth, (req, res) => {
+    const mail = loadMailSettings(db, secrets);
+    const ready = mailConfigured(mail);
+    render(req, res, {
+      title: 'Mail',
+      nav: 'mail',
+      body: `
+        ${pageHeader('Mail', 'One outgoing mail server for every tool that sends email.')}
+        <form method="post" action="/mail">
+          <section class="settings-section panel">
+            <h2 class="panel-title">Server</h2>
+            <div class="field-grid">
+              <div class="field">
+                <label for="mail-host">SMTP host</label>
+                <input id="mail-host" type="text" name="host" value="${escapeHtml(mail.host)}" placeholder="smtp.example.com" />
+              </div>
+              <div class="field">
+                <label for="mail-port">Port</label>
+                <input id="mail-port" type="number" name="port" min="1" max="65535" value="${escapeHtml(mail.port)}" />
+              </div>
+            </div>
+            <div class="field-grid" style="margin-top:1rem">
+              <div class="field">
+                <label for="mail-user">Username</label>
+                <input id="mail-user" type="text" name="user" value="${escapeHtml(mail.user)}" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="mail-pass">Password</label>
+                <input id="mail-pass" type="password" name="pass" value="" autocomplete="new-password" placeholder="${mail.pass ? '•••••••• (leave blank to keep)' : ''}" />
+              </div>
+            </div>
+            <div class="toggle-row" style="margin-top:1rem">
+              <div class="toggle-copy">
+                <strong>Implicit TLS</strong>
+                <span>Usually port 465. Leave off for STARTTLS on 587.</span>
+              </div>
+              <input type="checkbox" name="secure" value="1" ${mail.secure ? 'checked' : ''} />
+            </div>
+          </section>
+          <section class="settings-section panel">
+            <h2 class="panel-title">Addresses</h2>
+            <div class="field-grid">
+              <div class="field">
+                <label for="mail-from">From</label>
+                <input id="mail-from" type="email" name="from" value="${escapeHtml(mail.from)}" placeholder="toolkit@example.com" />
+              </div>
+              <div class="field">
+                <label for="mail-to">Default recipient</label>
+                <input id="mail-to" type="email" name="to" value="${escapeHtml(mail.to)}" placeholder="you@example.com" />
+                <p class="field-help">Used when a tool does not set its own recipient.</p>
+              </div>
+            </div>
+          </section>
+          <div class="row-actions"><button class="primary" type="submit">Save mail settings</button></div>
+        </form>
+        <form method="post" action="/mail/test" style="margin-top:1rem">
+          <div class="row-actions">
+            <button type="submit" ${ready ? '' : 'disabled'}>Send test email</button>
+            ${ready ? '' : '<span class="muted">Save a host and from address first.</span>'}
+          </div>
+        </form>
+      `,
+    });
+  });
+
+  app.post('/mail', requireAuth, (req, res) => {
+    saveMailSettings(db, secrets, req.body || {});
+    flash(res, 'ok', 'Mail settings saved');
+    res.redirect('/mail');
+  });
+
+  app.post('/mail/test', requireAuth, async (req, res) => {
+    const mail = loadMailSettings(db, secrets);
+    try {
+      if (!mailConfigured(mail)) throw new Error('Save a host and from address first');
+      if (!mail.to) throw new Error('Add a default recipient to send a test');
+      await sendMail({
+        ...mail,
+        subject: 'Plex Toolkit test email',
+        text: 'Outgoing mail from Plex Toolkit is working.',
+      });
+      flash(res, 'ok', `Test email sent to ${mail.to}`);
+    } catch (err) {
+      flash(res, 'error', `Test email failed: ${err.message}`);
+    }
+    res.redirect('/mail');
+  });
+
   app.get('/plugins', requireAuth, (req, res) => {
     const plugins = pluginManager.listInstalled();
     const catalog = pluginManager.listCatalog();
@@ -819,6 +931,11 @@ docker compose up -d</pre>
               <p class="muted" style="margin-top:0.5rem;max-width:36rem">${escapeHtml(p.description || '')}</p>
             </div>
             <div class="row-actions quiet">
+              <form method="post" action="/plugins/${encodeURIComponent(p.id)}/pin">
+                <button type="submit" class="ghost pin-btn${p.pinned ? ' pinned' : ''}" title="${p.pinned ? 'Unpin from nav' : 'Pin to nav'}" aria-label="${p.pinned ? 'Unpin from nav' : 'Pin to nav'}" aria-pressed="${p.pinned ? 'true' : 'false'}">
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16 3a1 1 0 0 1 .7 1.7L15 6.4v4.2l2.7 2.7a1 1 0 0 1-.7 1.7h-4v5.5a1 1 0 0 1-2 0V15H7a1 1 0 0 1-.7-1.7L9 10.6V6.4L7.3 4.7A1 1 0 0 1 8 3h8Z"/></svg>
+                </button>
+              </form>
               ${
                 hasApp
                   ? `<a class="btn primary" href="/plugins/${encodeURIComponent(p.id)}/app">Open</a>`
@@ -880,6 +997,24 @@ docker compose up -d</pre>
       flash(res, 'error', err.message);
       res.redirect('/plugins');
     }
+  });
+
+  app.post('/plugins/:id/pin', requireAuth, (req, res) => {
+    const plugin = pluginManager.get(req.params.id);
+    if (!plugin) {
+      flash(res, 'error', 'Plugin not found');
+      return res.redirect('/plugins');
+    }
+    const pinned = plugin.pinned ? 0 : 1;
+    db.prepare('UPDATE plugins SET pinned = ? WHERE id = ?').run(pinned, plugin.id);
+    flash(
+      res,
+      'ok',
+      pinned
+        ? `${plugin.name} pinned${plugin.enabled ? '' : ' (shows in the nav once enabled)'}`
+        : `${plugin.name} unpinned`,
+    );
+    res.redirect('/plugins');
   });
 
   app.post('/plugins/:id/remove', requireAuth, async (req, res) => {

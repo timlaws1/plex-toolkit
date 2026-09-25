@@ -1,4 +1,5 @@
 import { sendMail } from '../mail/smtp.js';
+import { loadMailSettings, mailConfigured } from '../mail/settings.js';
 import { browserFetch as defaultBrowserFetch } from '../net/browser-fetch.js';
 import fs from 'node:fs';
 import { assertPathAllowed } from './fs-scope.js';
@@ -355,34 +356,28 @@ export function createPluginApi({
       },
     },
     mail: {
+      isConfigured() {
+        requirePerm('mail.send');
+        return mailConfigured(loadMailSettings(db, secrets));
+      },
+      defaultTo() {
+        requirePerm('mail.send');
+        return loadMailSettings(db, secrets).to;
+      },
       async send({ to, subject, text, html, from } = {}) {
         requirePerm('mail.send');
-        const settings = loadSettings();
-        const host = settings.smtpHost || settings.smtp_host;
-        const port = Number(settings.smtpPort || settings.smtp_port || 587);
-        const user = settings.smtpUser || settings.smtp_user || '';
-        const pass = settings.smtpPassword || settings.smtp_password || '';
-        const fromAddr =
-          from ||
-          settings.smtpFrom ||
-          settings.smtp_from ||
-          settings.mailFrom ||
-          '';
-        const toAddr =
-          to || settings.smtpTo || settings.smtp_to || settings.mailTo || '';
-        const secure =
-          settings.smtpSecure === true ||
-          settings.smtp_secure === true ||
-          port === 465;
-
+        const mail = loadMailSettings(db, secrets);
+        if (!mailConfigured(mail)) {
+          throw new Error('Outgoing mail is not set up. Add a mail server on the Mail page.');
+        }
         return sendMail({
-          host,
-          port,
-          secure,
-          user,
-          pass,
-          from: fromAddr,
-          to: toAddr,
+          host: mail.host,
+          port: mail.port,
+          secure: mail.secure,
+          user: mail.user,
+          pass: mail.pass,
+          from: from || mail.from,
+          to: to || mail.to,
           subject,
           text,
           html,

@@ -90,6 +90,7 @@ function mapLibraryItem(item, libraryId) {
     viewedLeafCount:
       item.viewedLeafCount != null ? Number(item.viewedLeafCount) : null,
     duration: item.duration || null,
+    contentRating: item.contentRating || null,
     guid: typeof item.guid === 'string' ? item.guid : null,
     guids,
     roles: mapPeople(item.Role),
