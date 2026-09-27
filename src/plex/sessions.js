@@ -138,6 +138,7 @@ export class SessionTracker {
       librarySectionID: meta?.librarySectionID
         ? String(meta.librarySectionID)
         : null,
+      contentRating: meta?.contentRating || null,
       duration,
       viewOffset,
       progressPercent,
@@ -169,6 +170,7 @@ export class SessionTracker {
       parentIndex: session.parentIndex,
       index: session.index,
       librarySectionID: session.librarySectionID,
+      contentRating: session.contentRating ?? null,
       duration: session.duration,
       viewOffset: session.viewOffset,
       progressPercent: session.progressPercent,

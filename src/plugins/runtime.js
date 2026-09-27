@@ -75,6 +75,7 @@ export class InProcessRuntime {
       secrets: this.secrets,
       settingsSchema,
       mediaRoots: this.mediaRoots,
+      isPluginActive: (id) => this.isActive(id),
     });
 
     await activate(api);

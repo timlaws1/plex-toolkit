@@ -10,6 +10,11 @@ import {
   buildPlexPrerollValue,
   isPathUnderRoots,
 } from './paths.js';
+import {
+  filterItemsByMovieCertificate,
+  loadTrailerCertificatesByPath,
+  toBbfc,
+} from './trailer-cert.js';
 
 export const CINEMA_PREROLL_PREF = 'CinemaTrailersPrerollID';
 
@@ -18,17 +23,20 @@ export const CINEMA_PREROLL_PREF = 'CinemaTrailersPrerollID';
  */
 export class PrerollService {
   /**
-   * @param {{ sql: object, fs: object, plex: object, log: object, getSettings: () => object }} opts
+   * @param {{ sql: object, fs: object, plex: object, log: object, getSettings: () => object, isTrailerFetcherActive?: () => boolean }} opts
    */
-  constructor({ sql, fs, plex, log, getSettings }) {
+  constructor({ sql, fs, plex, log, getSettings, isTrailerFetcherActive }) {
     this.sql = sql;
     this.fs = fs;
     this.plex = plex;
     this.logger = log;
     this.getSettings = getSettings || (() => ({}));
+    this.isTrailerFetcherActive = isTrailerFetcherActive || (() => false);
     /** @type {Set<string>} */
     this._handledSessions = new Set();
     this._generating = false;
+    /** @type {Map<string, string|null>|null} */
+    this._trailerCertByPath = null;
   }
 
   start() {
@@ -389,9 +397,13 @@ export class PrerollService {
   }
 
   /**
-   * @param {{ reason?: string, excludePrevious?: boolean }} opts
+   * @param {{ reason?: string, excludePrevious?: boolean, movieContentRating?: string|null }} opts
    */
-  async generateAndApply({ reason = 'manual', excludePrevious = false } = {}) {
+  async generateAndApply({
+    reason = 'manual',
+    excludePrevious = false,
+    movieContentRating = null,
+  } = {}) {
     if (this._generating) {
       return { generated: false, reason: 'busy' };
     }
@@ -419,6 +431,21 @@ export class PrerollService {
       const selected = [];
       const stepWarnings = [];
       const mode = active.selection_mode || 'random';
+      const useCertMatch =
+        reason === 'playback' &&
+        this.isTrailerFetcherActive() &&
+        movieContentRating != null;
+      const movieCertBbfc = useCertMatch ? toBbfc(movieContentRating) : null;
+      const certByPath =
+        useCertMatch && movieCertBbfc
+          ? this._trailerCertByPath || loadTrailerCertificatesByPath(this.sql)
+          : null;
+      if (useCertMatch && movieCertBbfc && certByPath) {
+        this._trailerCertByPath = certByPath;
+        this.logger.info(
+          `Preroll: matching trailer certificates to feature (${movieCertBbfc})`,
+        );
+      }
 
       for (const step of steps) {
         const bucket = this.getBucket(step.bucket_id);
@@ -428,7 +455,22 @@ export class PrerollService {
           this.logger.warn(msg);
           continue;
         }
-        const items = this.listItems(bucket.id).filter((i) => !i.missing);
+        let items = this.listItems(bucket.id).filter((i) => !i.missing);
+        if (useCertMatch && movieCertBbfc && certByPath?.size) {
+          const filtered = filterItemsByMovieCertificate(
+            items,
+            bucket,
+            certByPath,
+            movieCertBbfc,
+          );
+          if (filtered.filtered) {
+            items = filtered.items;
+          } else if (filtered.fallback) {
+            const msg = `${bucket.name}: no trailers matched certificate ${movieCertBbfc}; using full bucket`;
+            stepWarnings.push(msg);
+            this.logger.warn(msg);
+          }
+        }
         const usedRows = this.sql
           .prepare('SELECT item_id FROM preroll_history WHERE bucket_id = ?')
           .all(bucket.id);
@@ -547,7 +589,10 @@ export class PrerollService {
       `Preroll regenerating after movie start: ${payload.title || payload.ratingKey}`,
     );
     try {
-      await this.generateAndApply({ reason: 'playback' });
+      await this.generateAndApply({
+        reason: 'playback',
+        movieContentRating: payload.contentRating ?? null,
+      });
     } catch (err) {
       this._handledSessions.delete(key);
       this.logger.error(`Preroll playback regenerate failed: ${err.message}`);

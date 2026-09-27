@@ -19,6 +19,7 @@ export async function activate(ctx) {
     plex: ctx.plex,
     log: ctx.log,
     getSettings: () => ctx.settings.get(),
+    isTrailerFetcherActive: () => ctx.tools.isActive('trailer-fetcher'),
   });
 
   ctx.events.on('playback.started', (payload) => {

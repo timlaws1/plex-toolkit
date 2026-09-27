@@ -30,6 +30,7 @@ export function createPluginApi({
   settingsSchema = [],
   browserFetch = defaultBrowserFetch,
   mediaRoots = null,
+  isPluginActive = () => false,
 }) {
   const perms = new Set(permissions || []);
   const unsubscribers = [];
@@ -460,6 +461,11 @@ export function createPluginApi({
     panels: {
       add(panel) {
         panels.set(pluginId, panel);
+      },
+    },
+    tools: {
+      isActive(id) {
+        return isPluginActive(String(id || ''));
       },
     },
     _dispose() {

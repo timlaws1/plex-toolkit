@@ -30,6 +30,7 @@ import {
 import { createPluginApi } from '../src/plugins/api.js';
 import { scanBucketFolder } from '../src/plugins/fs-media.js';
 import { validateManifest } from '../src/plugins/manifest.js';
+import { filterItemsByMovieCertificate } from '../tools/preroll-scheduler/lib/trailer-cert.js';
 import { openDatabase } from '../src/db/index.js';
 import { createLogger } from '../src/log.js';
 import { EventBus } from '../src/events/bus.js';
@@ -421,4 +422,29 @@ test('scanBucketFolder captures unreadable directory', { skip: process.platform 
   } finally {
     fs.chmodSync(secret, 0o700);
   }
+});
+
+test('filterItemsByMovieCertificate keeps fetcher trailers matching feature cert', () => {
+  const bucket = { folder_path: '/media/trailers' };
+  const certByPath = new Map([
+    [path.resolve('/media/trailers/a.mp4'), '15'],
+    [path.resolve('/media/trailers/b.mp4'), 'PG'],
+  ]);
+  const items = [
+    { id: 1, relative_path: 'a.mp4', enabled: 1, missing: 0 },
+    { id: 2, relative_path: 'b.mp4', enabled: 1, missing: 0 },
+    { id: 3, relative_path: 'manual.mp4', enabled: 1, missing: 0 },
+  ];
+  const result = filterItemsByMovieCertificate(items, bucket, certByPath, '15');
+  assert.equal(result.filtered, true);
+  assert.deepEqual(result.items.map((i) => i.id), [1, 3]);
+});
+
+test('filterItemsByMovieCertificate falls back when no cert match', () => {
+  const bucket = { folder_path: '/media/trailers' };
+  const certByPath = new Map([[path.resolve('/media/trailers/b.mp4'), 'PG']]);
+  const items = [{ id: 2, relative_path: 'b.mp4', enabled: 1, missing: 0 }];
+  const result = filterItemsByMovieCertificate(items, bucket, certByPath, '18');
+  assert.equal(result.fallback, true);
+  assert.equal(result.items.length, 1);
 });
