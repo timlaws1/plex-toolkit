@@ -7,6 +7,8 @@ const PREROLL_TABLES = new Set([
   'preroll_state',
 ]);
 
+const TRAILER_TABLES = new Set(['trailer_downloads']);
+
 const RECOMMENDATION_TABLES = new Set([
   'rec_letterboxd_imports',
   'rec_letterboxd_films',
@@ -21,6 +23,7 @@ const RECOMMENDATION_TABLES = new Set([
 const SQL_SCOPES = {
   'sql.preroll': PREROLL_TABLES,
   'sql.recommendations': RECOMMENDATION_TABLES,
+  'sql.trailers': TRAILER_TABLES,
 };
 
 const SQL_KEYWORDS = new Set([
@@ -147,4 +150,4 @@ export function createScopedSql(db, allowlist = PREROLL_TABLES) {
   };
 }
 
-export { PREROLL_TABLES, RECOMMENDATION_TABLES, SQL_SCOPES };
+export { PREROLL_TABLES, RECOMMENDATION_TABLES, TRAILER_TABLES, SQL_SCOPES };

@@ -1,0 +1,53 @@
+{
+  "id": "trailer-fetcher",
+  "name": "Trailer Fetcher",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "author": "Thunderhat",
+  "description": "Downloads new trailers from TrailerAddict into a preroll bucket, tagged with TMDB genre/certificate, and removes them a week after release.",
+  "entry": "plugin.js",
+  "permissions": [
+    "net.fetch",
+    "fs.write",
+    "fs.read",
+    "sql.trailers",
+    "scheduler"
+  ],
+  "settingsSchema": [
+    {
+      "key": "tmdbApiKey",
+      "type": "secret",
+      "label": "TMDb API key",
+      "section": "TMDB",
+      "help": "Used to fetch genre, certificate (region below) and release date for each trailer."
+    },
+    {
+      "key": "certRegion",
+      "type": "string",
+      "label": "Certificate region",
+      "default": "GB",
+      "section": "TMDB"
+    },
+    {
+      "key": "downloadFolder",
+      "type": "string",
+      "label": "Download folder",
+      "section": "Storage",
+      "help": "Absolute path (must be inside MEDIA_ROOTS) to save trailers into. Add this same folder as a bucket in Preroll Scheduler afterwards."
+    },
+    {
+      "key": "retentionDaysAfterRelease",
+      "type": "number",
+      "label": "Days to keep after release",
+      "default": 7,
+      "section": "Cleanup"
+    },
+    {
+      "key": "pollIntervalMinutes",
+      "type": "number",
+      "label": "Check for new trailers every (minutes)",
+      "default": 180,
+      "section": "Schedule"
+    }
+  ]
+}

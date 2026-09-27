@@ -14,7 +14,9 @@ const KNOWN_PERMISSIONS = new Set([
   'mail.send',
   'net.fetch',
   'fs.read',
+  'fs.write',
   'sql.preroll',
+  'sql.trailers',
   'sql.recommendations',
   'plex.collections',
 ]);

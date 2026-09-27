@@ -2,6 +2,7 @@ import { sendMail } from '../mail/smtp.js';
 import { loadMailSettings, mailConfigured } from '../mail/settings.js';
 import { browserFetch as defaultBrowserFetch } from '../net/browser-fetch.js';
 import fs from 'node:fs';
+import { promises as fsp } from 'node:fs';
 import { assertPathAllowed } from './fs-scope.js';
 import { allowlistForPermissions, createScopedSql, hasSqlPermission } from './sql-scope.js';
 import { scanBucketFolder, readMp4DurationMsHost } from './fs-media.js';
@@ -265,6 +266,21 @@ export function createPluginApi({
         } catch {
           return false;
         }
+      },
+      async writeFile(absPath, data) {
+        requirePerm('fs.write');
+        const allowed = guardPath(absPath);
+        await fsp.writeFile(allowed, data);
+      },
+      async mkdir(absPath) {
+        requirePerm('fs.write');
+        const allowed = guardPath(absPath);
+        await fsp.mkdir(allowed, { recursive: true });
+      },
+      async unlink(absPath) {
+        requirePerm('fs.write');
+        const allowed = guardPath(absPath);
+        await fsp.unlink(allowed);
       },
     },
     sql: {
