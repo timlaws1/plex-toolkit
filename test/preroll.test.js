@@ -30,7 +30,10 @@ import {
 import { createPluginApi } from '../src/plugins/api.js';
 import { scanBucketFolder } from '../src/plugins/fs-media.js';
 import { validateManifest } from '../src/plugins/manifest.js';
-import { filterItemsByMovieCertificate } from '../tools/preroll-scheduler/lib/trailer-cert.js';
+import {
+  contentRatingForCertMatch,
+  filterItemsByMovieCertificate,
+} from '../tools/preroll-scheduler/lib/trailer-cert.js';
 import { openDatabase } from '../src/db/index.js';
 import { createLogger } from '../src/log.js';
 import { EventBus } from '../src/events/bus.js';
@@ -422,6 +425,26 @@ test('scanBucketFolder captures unreadable directory', { skip: process.platform 
   } finally {
     fs.chmodSync(secret, 0o700);
   }
+});
+
+test('contentRatingForCertMatch uses last movie on roll again', () => {
+  assert.equal(
+    contentRatingForCertMatch('roll_again', {
+      lastMovieContentRating: 'gb/15',
+    }),
+    'gb/15',
+  );
+  assert.equal(
+    contentRatingForCertMatch('tick', { lastMovieContentRating: 'gb/15' }),
+    null,
+  );
+  assert.equal(
+    contentRatingForCertMatch('playback', {
+      movieContentRating: 'PG',
+      lastMovieContentRating: '18',
+    }),
+    'PG',
+  );
 });
 
 test('filterItemsByMovieCertificate keeps fetcher trailers matching feature cert', () => {

@@ -18,5 +18,5 @@ On each poll, new RSS items are downloaded into the folder. Preroll Scheduler pi
 
 ## Notes
 
-- When **Trailer Fetcher** and **Preroll Scheduler** are both enabled, prerolls regenerated at movie start prefer bucket videos whose stored TMDb certificate matches the feature’s Plex content rating (BBFC-normalised). Manual bucket files without a fetcher record are still eligible.
+- When **Trailer Fetcher** and **Preroll Scheduler** are both enabled, prerolls regenerated at movie start (and **Roll Again** while that session context is remembered) prefer bucket videos whose stored TMDb certificate matches the feature’s Plex content rating (BBFC-normalised). Manual bucket files without a fetcher record are still eligible.
 - Trailers with no TMDb match (no release date) are kept until you remove them manually; the hourly cleanup job logs a warning listing those titles.

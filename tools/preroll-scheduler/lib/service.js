@@ -11,6 +11,7 @@ import {
   isPathUnderRoots,
 } from './paths.js';
 import {
+  contentRatingForCertMatch,
   filterItemsByMovieCertificate,
   loadTrailerCertificatesByPath,
   toBbfc,
@@ -37,6 +38,8 @@ export class PrerollService {
     this._generating = false;
     /** @type {Map<string, string|null>|null} */
     this._trailerCertByPath = null;
+    /** @type {string|null} last movie Plex contentRating for Roll Again cert match */
+    this._lastMovieContentRating = null;
   }
 
   start() {
@@ -48,6 +51,7 @@ export class PrerollService {
 
   stop() {
     this._handledSessions.clear();
+    this._lastMovieContentRating = null;
   }
 
   ensureStateRow() {
@@ -431,11 +435,13 @@ export class PrerollService {
       const selected = [];
       const stepWarnings = [];
       const mode = active.selection_mode || 'random';
+      const matchRating = contentRatingForCertMatch(reason, {
+        movieContentRating,
+        lastMovieContentRating: this._lastMovieContentRating,
+      });
       const useCertMatch =
-        reason === 'playback' &&
-        this.isTrailerFetcherActive() &&
-        movieContentRating != null;
-      const movieCertBbfc = useCertMatch ? toBbfc(movieContentRating) : null;
+        this.isTrailerFetcherActive() && matchRating != null;
+      const movieCertBbfc = useCertMatch ? toBbfc(matchRating) : null;
       const certByPath =
         useCertMatch && movieCertBbfc
           ? this._trailerCertByPath || loadTrailerCertificatesByPath(this.sql)
@@ -585,13 +591,14 @@ export class PrerollService {
       const first = this._handledSessions.values().next().value;
       this._handledSessions.delete(first);
     }
+    this._lastMovieContentRating = payload.contentRating ?? null;
     this.logger.info(
       `Preroll regenerating after movie start: ${payload.title || payload.ratingKey}`,
     );
     try {
       await this.generateAndApply({
         reason: 'playback',
-        movieContentRating: payload.contentRating ?? null,
+        movieContentRating: this._lastMovieContentRating,
       });
     } catch (err) {
       this._handledSessions.delete(key);

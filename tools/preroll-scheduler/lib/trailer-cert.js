@@ -2,6 +2,25 @@ import path from 'node:path';
 import { toBbfc } from '../../scheduled-recommendations/lib/ratings.js';
 import { absoluteItemPath } from './media.js';
 
+const CERT_MATCH_REASONS = new Set(['playback', 'roll_again']);
+
+/**
+ * Content rating to use for trailer cert matching (explicit playback value or last movie).
+ * @param {string} reason generateAndApply reason
+ * @param {{ movieContentRating?: string|null, lastMovieContentRating?: string|null }} sources
+ * @returns {string|null}
+ */
+export function contentRatingForCertMatch(
+  reason,
+  { movieContentRating = null, lastMovieContentRating = null } = {},
+) {
+  if (!CERT_MATCH_REASONS.has(reason)) return null;
+  const raw = movieContentRating ?? lastMovieContentRating;
+  if (raw == null) return null;
+  const text = String(raw).trim();
+  return text || null;
+}
+
 /**
  * @param {import('better-sqlite3').Statement|{ all: (...args: unknown[]) => unknown[] }} sql scoped prepare
  * @returns {Map<string, string|null>}
