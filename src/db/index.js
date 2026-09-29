@@ -318,6 +318,13 @@ ALTER TABLE rec_tmdb_movies ADD COLUMN certification TEXT;
 UPDATE rec_schedules SET output_type = 'email' WHERE output_type = 'watchlist';
 `,
   },
+  {
+    id: 8,
+    sql: `
+ALTER TABLE preroll_steps ADD COLUMN group_position INTEGER NOT NULL DEFAULT 0;
+UPDATE preroll_steps SET group_position = position;
+`,
+  },
 ];
 
 export function openDatabase(dbPath) {

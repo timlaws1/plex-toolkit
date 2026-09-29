@@ -10,9 +10,17 @@ import {
 } from '../tools/preroll-scheduler/lib/schedule.js';
 import {
   selectFromBucket,
+  selectFromGroups,
+  stepGroupPositions,
+  groupSteps,
   combinationKey,
   playbackSessionKey,
 } from '../tools/preroll-scheduler/lib/selection.js';
+import {
+  parseStepsFromBody,
+  formatSequence,
+} from '../tools/preroll-scheduler/lib/ui.js';
+import { PrerollService } from '../tools/preroll-scheduler/lib/service.js';
 import {
   toPlexPath,
   buildPlexPrerollValue,
@@ -470,4 +478,213 @@ test('filterItemsByMovieCertificate falls back when no cert match', () => {
   const result = filterItemsByMovieCertificate(items, bucket, certByPath, '18');
   assert.equal(result.fallback, true);
   assert.equal(result.items.length, 1);
+});
+
+function stepBody(rows) {
+  return {
+    step_join: rows.map((r) => r[0]),
+    step_bucket: rows.map((r) => String(r[1])),
+    step_count: rows.map(() => '1'),
+  };
+}
+
+function groupsOf(steps) {
+  const positions = stepGroupPositions(steps);
+  return groupSteps(
+    steps.map((s, i) => ({ ...s, group_position: positions[i] })),
+  ).map((g) => g.map((s) => s.bucketId));
+}
+
+test('parseStepsFromBody: 1 and (2 or 3)', () => {
+  const steps = parseStepsFromBody(
+    stepBody([
+      ['and', 1],
+      ['and', 2],
+      ['or', 3],
+    ]),
+  );
+  assert.deepEqual(groupsOf(steps), [[1], [2, 3]]);
+});
+
+test('parseStepsFromBody: (1 and 2) and (3 or 4)', () => {
+  const steps = parseStepsFromBody(
+    stepBody([
+      ['and', 1],
+      ['and', 2],
+      ['and', 3],
+      ['or', 4],
+    ]),
+  );
+  assert.deepEqual(groupsOf(steps), [[1], [2], [3, 4]]);
+});
+
+test('parseStepsFromBody: 1 or 2, and first-row join is ignored', () => {
+  const steps = parseStepsFromBody(
+    stepBody([
+      ['or', 1],
+      ['or', 2],
+    ]),
+  );
+  assert.deepEqual(groupsOf(steps), [[1, 2]]);
+});
+
+test('parseStepsFromBody: consecutive ors are one group', () => {
+  const steps = parseStepsFromBody(
+    stepBody([
+      ['and', 1],
+      ['or', 2],
+      ['or', 3],
+      ['and', 4],
+    ]),
+  );
+  assert.deepEqual(groupsOf(steps), [[1, 2, 3], [4]]);
+});
+
+test('parseStepsFromBody without joins keeps every step as its own group', () => {
+  const steps = parseStepsFromBody({
+    step_bucket: ['1', '2'],
+    step_count: ['1', '1'],
+  });
+  assert.deepEqual(groupsOf(steps), [[1], [2]]);
+});
+
+test('formatSequence brackets ORs only beside other groups', () => {
+  const step = (id, g) => ({
+    bucket_id: id,
+    bucket_name: `B${id}`,
+    count: 1,
+    group_position: g,
+  });
+  assert.equal(
+    formatSequence([step(1, 0), step(2, 1), step(3, 1)]),
+    '1× B1 and (1× B2 or 1× B3)',
+  );
+  assert.equal(formatSequence([step(1, 0), step(2, 0)]), '1× B1 or 1× B2');
+  assert.equal(formatSequence([step(1, 0), step(2, 1)]), '1× B1 and 1× B2');
+});
+
+function bucketItems(bucketId, ids) {
+  return ids.map((id) => ({ id, bucketId, enabled: 1, missing: 0 }));
+}
+
+function alt(bucketId, ids, extra = {}) {
+  return {
+    bucketId,
+    bucketName: `B${bucketId}`,
+    count: 1,
+    items: bucketItems(bucketId, ids),
+    usedIds: [],
+    ...extra,
+  };
+}
+
+test('selectFromGroups always plays AND groups and exactly one OR branch', () => {
+  for (let n = 0; n < 20; n++) {
+    const { picks } = selectFromGroups(
+      [[alt(1, [10])], [alt(2, [20]), alt(3, [30])]],
+      'random',
+    );
+    assert.equal(picks.length, 2);
+    assert.equal(picks[0].alternative.bucketId, 1);
+    assert.ok([2, 3].includes(picks[1].alternative.bucketId));
+    assert.equal(picks[1].selected.length, 1);
+  }
+});
+
+test('selectFromGroups falls through an empty OR branch', () => {
+  for (let n = 0; n < 20; n++) {
+    const { picks, warnings } = selectFromGroups(
+      [[alt(1, []), alt(2, [20])]],
+      'random',
+    );
+    assert.equal(picks.length, 1);
+    assert.equal(picks[0].alternative.bucketId, 2);
+    assert.deepEqual(warnings, []);
+  }
+});
+
+test('selectFromGroups warns when no OR branch can play', () => {
+  const { picks, warnings } = selectFromGroups(
+    [[alt(1, []), alt(2, [])]],
+    'random',
+  );
+  assert.equal(picks.length, 0);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /B1 \/ B2/);
+});
+
+test('selectFromGroups prefers certificate-matched OR branches', () => {
+  for (let n = 0; n < 20; n++) {
+    const { picks } = selectFromGroups(
+      [[alt(1, [10], { certFallback: true }), alt(2, [20])]],
+      'random',
+    );
+    assert.equal(picks[0].alternative.bucketId, 2);
+  }
+});
+
+test('selectFromGroups only returns history for the chosen branch', () => {
+  const { picks } = selectFromGroups(
+    [[alt(1, [10, 11]), alt(2, [20, 21])]],
+    'random_avoid_repeats',
+    { random: () => 0 },
+  );
+  assert.equal(picks.length, 1);
+  const chosen = picks[0].alternative.bucketId;
+  const ids = chosen === 1 ? [10, 11] : [20, 21];
+  assert.ok(picks[0].nextUsedIds.every((id) => ids.includes(id)));
+});
+
+test('selectFromGroups carries avoid-repeats history across steps sharing a bucket', () => {
+  const { picks } = selectFromGroups(
+    [[alt(1, [10, 11])], [alt(1, [10, 11])]],
+    'random_avoid_repeats',
+    { random: () => 0 },
+  );
+  assert.equal(picks.length, 2);
+  assert.notEqual(picks[0].selected[0].id, picks[1].selected[0].id);
+});
+
+test('replaceSteps stores OR groups and listSteps orders them', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-steps-'));
+  const db = openDatabase(path.join(dir, 't.sqlite'));
+  const service = new PrerollService({
+    sql: createScopedSql(db),
+    fs: {},
+    plex: { isConfigured: () => false },
+    log: { info() {}, warn() {}, error() {} },
+  });
+  const bucket = (name) => ({
+    id: Number(
+      db
+        .prepare(
+          'INSERT INTO preroll_buckets (name, folder_path) VALUES (?, ?)',
+        )
+        .run(name, `/prerolls/${name}`).lastInsertRowid,
+    ),
+  });
+  const a = bucket('A');
+  const b = bucket('B');
+  const c = bucket('C');
+  const schedule = service.createSchedule({
+    name: 'Default',
+    steps: parseStepsFromBody(
+      stepBody([
+        ['and', a.id],
+        ['and', b.id],
+        ['or', c.id],
+      ]),
+    ),
+  });
+  const steps = service.listSteps(schedule.id);
+  assert.deepEqual(
+    steps.map((s) => [s.bucket_id, s.group_position]),
+    [
+      [a.id, 0],
+      [b.id, 1],
+      [c.id, 1],
+    ],
+  );
+  assert.equal(formatSequence(steps), '1× A and (1× B or 1× C)');
+  db.close();
 });

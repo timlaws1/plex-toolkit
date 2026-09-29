@@ -1,5 +1,6 @@
 import { SCHEDULE_PRIORITY_HELP } from './schedule.js';
 import { isBrowserPreviewable } from './media.js';
+import { groupSteps } from './selection.js';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -135,12 +136,7 @@ Trailers &amp; Adverts → 1 random</pre>
 
   const sequence =
     (steps || []).length > 0
-      ? `<ol class="list-stack">${steps
-          .map(
-            (s, i) =>
-              `<li class="list-row"><div><strong>${i + 1}. ${escapeHtml(s.bucket_name || `Bucket #${s.bucket_id}`)}</strong><div class="muted">${escapeHtml(String(s.count))} random</div></div></li>`,
-          )
-          .join('')}</ol>`
+      ? `<p><strong>${escapeHtml(formatSequence(steps))}</strong></p>`
       : `<p class="muted">No steps on the active schedule.</p>`;
 
   const warning = state?.warning
@@ -369,6 +365,7 @@ export function renderSchedules({
   buckets,
   editing,
   steps,
+  stepsBySchedule,
   showNew,
   pathPrefixes,
   basePath,
@@ -392,6 +389,7 @@ export function renderSchedules({
                 <strong>${escapeHtml(s.name)}</strong> ${badge}
                 <div class="muted">${escapeHtml(dateRangeLabel(s))}${s.start_time || s.end_time ? ` · ${escapeHtml(s.start_time || '…')}–${escapeHtml(s.end_time || '…')}` : ''}</div>
                 <div class="muted">${s.selection_mode === 'random_avoid_repeats' ? 'Random, avoid repeats' : 'Random'}</div>
+                ${stepsBySchedule?.get(s.id)?.length ? `<div class="muted">${escapeHtml(formatSequence(stepsBySchedule.get(s.id)))}</div>` : ''}
               </div>
               <div class="row-actions">
                 <a class="btn ghost" href="${basePath}?tab=schedules&amp;edit=${s.id}">Edit</a>
@@ -426,27 +424,18 @@ export function renderSchedules({
 
 function scheduleForm(schedule, buckets, steps, basePath) {
   const isEdit = Boolean(schedule.id);
-  const stepRows = (steps.length ? steps : [{ bucket_id: buckets[0]?.id, count: 1 }])
-    .map(
-      (st) => `
-      <div class="field-grid preroll-step">
-        <div class="field">
-          <label>Bucket</label>
-          <select name="step_bucket">${bucketOptions(buckets, st.bucket_id || st.bucketId)}</select>
-        </div>
-        <div class="field">
-          <label>Count</label>
-          <input type="number" name="step_count" min="1" max="20" value="${escapeHtml(String(st.count || 1))}" />
-        </div>
-        <div class="field" style="align-self:end">
-          <div class="row-actions">
-            <button type="button" class="ghost move-up" title="Move up">↑</button>
-            <button type="button" class="ghost move-down" title="Move down">↓</button>
-            <button type="button" class="danger remove-step">Remove</button>
-          </div>
-        </div>
-      </div>`,
-    )
+  const rows = steps.length ? steps : [{ bucket_id: buckets[0]?.id, count: 1 }];
+  const stepRows = rows
+    .map((st, i) => {
+      const prev = rows[i - 1];
+      const join =
+        prev &&
+        st.group_position != null &&
+        st.group_position === prev.group_position
+          ? 'or'
+          : 'and';
+      return stepRow(buckets, st.bucket_id || st.bucketId, st.count, join);
+    })
     .join('');
 
   return `<form method="post" action="${basePath}" id="schedule-form">
@@ -498,7 +487,8 @@ function scheduleForm(schedule, buckets, steps, basePath) {
       <input type="checkbox" name="enabled" value="1" ${schedule.enabled === 0 || schedule.enabled === false ? '' : 'checked'} />
     </div>
     <h3 class="panel-title" style="margin-top:1rem">Sequence</h3>
-    <p class="panel-hint">Ordered bucket steps. The same bucket can appear more than once.</p>
+    <p class="panel-hint">Ordered bucket steps. The same bucket can appear more than once. <strong>And</strong> always plays the step as well; <strong>Or</strong> makes it an alternative to the step above, and consecutive ors are one choice (exactly one of them plays).</p>
+    <style>#steps .preroll-step:first-child .step-join { visibility: hidden; }</style>
     <div id="steps">${stepRows}</div>
     <div class="row-actions" style="margin:0.75rem 0">
       <button type="button" class="ghost" id="add-step">Add step</button>
@@ -508,25 +498,7 @@ function scheduleForm(schedule, buckets, steps, basePath) {
       <a class="btn ghost" href="${basePath}?tab=schedules">Cancel</a>
     </div>
   </form>
-  <template id="step-template">
-    <div class="field-grid preroll-step">
-      <div class="field">
-        <label>Bucket</label>
-        <select name="step_bucket">${bucketOptions(buckets, null)}</select>
-      </div>
-      <div class="field">
-        <label>Count</label>
-        <input type="number" name="step_count" min="1" max="20" value="1" />
-      </div>
-      <div class="field" style="align-self:end">
-        <div class="row-actions">
-          <button type="button" class="ghost move-up" title="Move up">↑</button>
-          <button type="button" class="ghost move-down" title="Move down">↓</button>
-          <button type="button" class="danger remove-step">Remove</button>
-        </div>
-      </div>
-    </div>
-  </template>
+  <template id="step-template">${stepRow(buckets, null, 1, 'and')}</template>
   <script>
     (function () {
       var add = document.getElementById('add-step');
@@ -557,6 +529,53 @@ function scheduleForm(schedule, buckets, steps, basePath) {
   </script>`;
 }
 
+function stepRow(buckets, bucketId, count, join) {
+  return `
+      <div class="field-grid preroll-step">
+        <div class="field step-join">
+          <label>Join</label>
+          <select name="step_join">
+            <option value="and" ${join !== 'or' ? 'selected' : ''}>And</option>
+            <option value="or" ${join === 'or' ? 'selected' : ''}>Or</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Bucket</label>
+          <select name="step_bucket">${bucketOptions(buckets, bucketId)}</select>
+        </div>
+        <div class="field">
+          <label>Count</label>
+          <input type="number" name="step_count" min="1" max="20" value="${escapeHtml(String(count || 1))}" />
+        </div>
+        <div class="field" style="align-self:end">
+          <div class="row-actions">
+            <button type="button" class="ghost move-up" title="Move up">↑</button>
+            <button type="button" class="ghost move-down" title="Move down">↓</button>
+            <button type="button" class="danger remove-step">Remove</button>
+          </div>
+        </div>
+      </div>`;
+}
+
+/**
+ * Human-readable AND/OR formula, e.g. `1× Idents and (1× Ads or 1× Trailers)`.
+ * @param {{ bucket_name?: string, bucket_id: number, count: number, group_position?: number }[]} steps
+ */
+export function formatSequence(steps) {
+  const groups = groupSteps(steps || []);
+  return groups
+    .map((group) => {
+      const text = group
+        .map(
+          (s) =>
+            `${s.count || 1}× ${s.bucket_name || `Bucket #${s.bucket_id}`}`,
+        )
+        .join(' or ');
+      return group.length > 1 && groups.length > 1 ? `(${text})` : text;
+    })
+    .join(' and ');
+}
+
 function bucketOptions(buckets, selectedId) {
   if (!buckets?.length) return `<option value="">No buckets</option>`;
   return buckets
@@ -570,16 +589,21 @@ function bucketOptions(buckets, selectedId) {
 export function parseStepsFromBody(body) {
   let buckets = body.step_bucket;
   let counts = body.step_count;
+  let joins = body.step_join;
   if (buckets == null) return [];
   if (!Array.isArray(buckets)) buckets = [buckets];
   if (!Array.isArray(counts)) counts = [counts];
+  if (!Array.isArray(joins)) joins = [joins];
   const steps = [];
+  let group = -1;
   for (let i = 0; i < buckets.length; i++) {
     const bucketId = Number(buckets[i]);
     if (!bucketId) continue;
+    if (steps.length === 0 || joins[i] !== 'or') group += 1;
     steps.push({
       bucketId,
       count: Math.max(1, Number(counts[i]) || 1),
+      group,
     });
   }
   return steps;

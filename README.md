@@ -107,7 +107,7 @@ Click **Test** on a schedule to see what it would pick right now, without publis
 
 1. Put your preroll videos in the host folder set by `PREROLL_DIR`. It is mounted at `/prerolls` in the container.
 2. In the tool: **Buckets** → point each bucket at a container path such as `/prerolls/idents`.
-3. **Schedules** → add ordered steps, for example 1× Cinema Idents, then 1× Trailers.
+3. **Schedules** → add ordered steps, for example 1× Cinema Idents, then 1× Trailers. Join a step with **Or** to make it an alternative to the step above: `1× Idents and (1× Adverts or 1× Trailers)` always plays an ident, then either an advert or a trailer.
 4. Leave one schedule with no dates as the default, and add date ranges for Halloween, Christmas, and so on.
 
 The tool writes the chosen files to Plex's `CinemaTrailersPrerollID` preference. Cinema Trailers must be enabled on the Plex client and on the movie library.

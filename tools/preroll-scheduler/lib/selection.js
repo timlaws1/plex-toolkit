@@ -85,6 +85,150 @@ export function selectFromBucket(
 }
 
 /**
+ * @typedef {{
+ *   bucketId: number,
+ *   bucketName?: string,
+ *   count: number,
+ *   items: Item[],
+ *   usedIds?: Set<number>|number[],
+ *   certFallback?: boolean,
+ * }} Alternative
+ */
+
+/**
+ * Pick from ordered groups: every group plays (AND), and exactly one
+ * alternative within a group plays (OR).
+ * @param {Alternative[][]} groups
+ * @param {'random'|'random_avoid_repeats'} mode
+ * @param {{ excludeIds?: Set<number>|number[], random?: () => number }} options
+ * @returns {{ picks: { groupIndex: number, alternative: Alternative, selected: Item[], nextUsedIds: number[] }[], warnings: string[] }}
+ */
+export function selectFromGroups(groups, mode = 'random', options = {}) {
+  const rand = options.random || Math.random;
+  const picks = [];
+  const warnings = [];
+  /** @type {Map<number, number[]>} history carried across steps sharing a bucket */
+  const usedByBucket = new Map();
+
+  const run = (alt) =>
+    selectFromBucket(
+      alt.items,
+      alt.count,
+      mode,
+      usedByBucket.get(alt.bucketId) ?? alt.usedIds ?? [],
+      { excludeIds: options.excludeIds, random: rand },
+    );
+  const accept = (groupIndex, alt, result) => {
+    usedByBucket.set(alt.bucketId, result.nextUsedIds);
+    picks.push({ groupIndex, alternative: alt, ...result });
+  };
+
+  (groups || []).forEach((group, groupIndex) => {
+    const alts = (group || []).filter(Boolean);
+    if (alts.length === 0) return;
+
+    if (alts.length === 1) {
+      const alt = alts[0];
+      const result = run(alt);
+      for (const w of result.warnings) warnings.push(`${labelOf(alt)}: ${w}`);
+      if (result.selected.length > 0) accept(groupIndex, alt, result);
+      return;
+    }
+
+    for (const alt of orderAlternatives(alts, rand)) {
+      const result = run(alt);
+      if (result.selected.length === 0) continue;
+      for (const w of result.warnings) warnings.push(`${labelOf(alt)}: ${w}`);
+      accept(groupIndex, alt, result);
+      return;
+    }
+    warnings.push(
+      `None of ${alts.map(labelOf).join(' / ')} had videos to play`,
+    );
+  });
+
+  return { picks, warnings };
+}
+
+/**
+ * Certificate-matched alternatives first, then ones that can fill their count,
+ * then ones with any playable video. Random within each tier.
+ * @param {Alternative[]} alts
+ * @param {() => number} rand
+ */
+function orderAlternatives(alts, rand) {
+  const tiers = [[], [], [], [], []];
+  for (const alt of alts) {
+    const playable = playableCount(alt.items);
+    const certOffset = alt.certFallback ? 2 : 0;
+    if (playable === 0) tiers[4].push(alt);
+    else if (playable >= Math.max(1, Number(alt.count) || 1)) {
+      tiers[certOffset].push(alt);
+    } else tiers[certOffset + 1].push(alt);
+  }
+  return tiers.flatMap((tier) => shuffle(tier, rand));
+}
+
+function playableCount(items) {
+  return (items || []).filter(
+    (it) =>
+      (it.enabled === 1 || it.enabled === true || it.enabled == null) &&
+      !(it.missing === 1 || it.missing === true),
+  ).length;
+}
+
+function shuffle(list, rand) {
+  const out = [...list];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+function labelOf(alt) {
+  return alt.bucketName || `Bucket #${alt.bucketId}`;
+}
+
+/**
+ * Dense group positions for steps in form order. Steps sharing a `group`
+ * value with the previous step are OR alternatives; steps without one each
+ * get their own group.
+ * @param {{ group?: number }[]} steps
+ * @returns {number[]}
+ */
+export function stepGroupPositions(steps) {
+  const positions = [];
+  let current = -1;
+  let prevGroup;
+  (steps || []).forEach((step, i) => {
+    const group = step.group;
+    if (i === 0 || group == null || group !== prevGroup) current += 1;
+    positions.push(current);
+    prevGroup = group;
+  });
+  return positions;
+}
+
+/**
+ * Split ordered step rows into consecutive groups by `group_position`.
+ * @template {{ group_position?: number|null }} T
+ * @param {T[]} rows
+ * @returns {T[][]}
+ */
+export function groupSteps(rows) {
+  const groups = [];
+  let prev;
+  (rows || []).forEach((row, i) => {
+    const key = row.group_position ?? `row-${i}`;
+    if (groups.length === 0 || key !== prev) groups.push([]);
+    groups[groups.length - 1].push(row);
+    prev = key;
+  });
+  return groups;
+}
+
+/**
  * Fingerprint a selected combination for Roll Again exclusion.
  * @param {{ id: number }[]} items
  */

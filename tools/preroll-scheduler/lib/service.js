@@ -1,6 +1,8 @@
 import { resolveActiveSchedule } from './schedule.js';
 import {
-  selectFromBucket,
+  selectFromGroups,
+  groupSteps,
+  stepGroupPositions,
   combinationKey,
   playbackSessionKey,
 } from './selection.js';
@@ -239,7 +241,7 @@ export class PrerollService {
          FROM preroll_steps s
          LEFT JOIN preroll_buckets b ON b.id = s.bucket_id
          WHERE s.schedule_id = ?
-         ORDER BY s.position ASC`,
+         ORDER BY s.group_position ASC, s.position ASC`,
       )
       .all(scheduleId);
   }
@@ -325,14 +327,15 @@ export class PrerollService {
       'DELETE FROM preroll_steps WHERE schedule_id = ?',
     );
     const ins = this.sql.prepare(
-      `INSERT INTO preroll_steps (schedule_id, position, bucket_id, count)
-       VALUES (?, ?, ?, ?)`,
+      `INSERT INTO preroll_steps (schedule_id, position, bucket_id, count, group_position)
+       VALUES (?, ?, ?, ?, ?)`,
     );
+    const groups = stepGroupPositions(steps || []);
     const tx = this.sql.transaction(() => {
       del.run(scheduleId);
       (steps || []).forEach((step, i) => {
         const count = Math.max(1, Number(step.count) || 1);
-        ins.run(scheduleId, i, Number(step.bucketId), count);
+        ins.run(scheduleId, i, Number(step.bucketId), count, groups[i]);
       });
     });
     tx();
@@ -453,56 +456,70 @@ export class PrerollService {
         );
       }
 
-      for (const step of steps) {
-        const bucket = this.getBucket(step.bucket_id);
-        if (!bucket || !bucket.enabled) {
-          const msg = `Step skipped: bucket ${step.bucket_id} missing or disabled`;
+      const historyStmt = this.sql.prepare(
+        'SELECT item_id FROM preroll_history WHERE bucket_id = ?',
+      );
+      const groups = groupSteps(steps).map((group) => {
+        const alts = [];
+        const skipped = [];
+        for (const step of group) {
+          const bucket = this.getBucket(step.bucket_id);
+          if (!bucket || !bucket.enabled) {
+            skipped.push(
+              `Step skipped: bucket ${step.bucket_id} missing or disabled`,
+            );
+            continue;
+          }
+          let items = this.listItems(bucket.id).filter((i) => !i.missing);
+          let certFallback = false;
+          if (useCertMatch && movieCertBbfc && certByPath?.size) {
+            const filtered = filterItemsByMovieCertificate(
+              items,
+              bucket,
+              certByPath,
+              movieCertBbfc,
+            );
+            if (filtered.filtered) items = filtered.items;
+            else if (filtered.fallback) certFallback = true;
+          }
+          alts.push({
+            bucketId: bucket.id,
+            bucketName: bucket.name,
+            bucket,
+            count: step.count,
+            items,
+            usedIds: historyStmt.all(bucket.id).map((r) => r.item_id),
+            certFallback,
+          });
+        }
+        for (const msg of skipped) {
+          this.logger.warn(msg);
+          if (alts.length === 0) stepWarnings.push(msg);
+        }
+        return alts;
+      });
+
+      const result = selectFromGroups(groups, mode, {
+        excludeIds: excludePrevious && prevIds.size > 0 ? prevIds : undefined,
+      });
+      for (const w of result.warnings) {
+        stepWarnings.push(w);
+        this.logger.warn(`Preroll selection: ${w}`);
+      }
+
+      for (const pick of result.picks) {
+        const { bucket, certFallback } = pick.alternative;
+        if (certFallback) {
+          const msg = `${bucket.name}: no trailers matched certificate ${movieCertBbfc}; using full bucket`;
           stepWarnings.push(msg);
           this.logger.warn(msg);
-          continue;
-        }
-        let items = this.listItems(bucket.id).filter((i) => !i.missing);
-        if (useCertMatch && movieCertBbfc && certByPath?.size) {
-          const filtered = filterItemsByMovieCertificate(
-            items,
-            bucket,
-            certByPath,
-            movieCertBbfc,
-          );
-          if (filtered.filtered) {
-            items = filtered.items;
-          } else if (filtered.fallback) {
-            const msg = `${bucket.name}: no trailers matched certificate ${movieCertBbfc}; using full bucket`;
-            stepWarnings.push(msg);
-            this.logger.warn(msg);
-          }
-        }
-        const usedRows = this.sql
-          .prepare('SELECT item_id FROM preroll_history WHERE bucket_id = ?')
-          .all(bucket.id);
-        const usedIds = usedRows.map((r) => r.item_id);
-
-        const result = selectFromBucket(
-          items,
-          step.count,
-          mode,
-          usedIds,
-          {
-            excludeIds:
-              excludePrevious && prevIds.size > 0 ? prevIds : undefined,
-          },
-        );
-        for (const w of result.warnings) {
-          stepWarnings.push(`${bucket.name}: ${w}`);
-          this.logger.warn(`Preroll selection: ${bucket.name}: ${w}`);
         }
 
-        // Persist avoid-repeats history for this bucket
         if (mode === 'random_avoid_repeats') {
-          this._setBucketHistory(bucket.id, result.nextUsedIds);
+          this._setBucketHistory(bucket.id, pick.nextUsedIds);
         }
 
-        for (const item of result.selected) {
+        for (const item of pick.selected) {
           const abs = absoluteItemPath(bucket.folder_path, item.relative_path);
           selected.push({
             id: item.id,

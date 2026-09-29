@@ -274,6 +274,7 @@ function handleGet(svc, query) {
         buckets,
         editing,
         steps: editing ? svc.listSteps(editing.id) : [],
+        stepsBySchedule: new Map(schedules.map((s) => [s.id, svc.listSteps(s.id)])),
         showNew: query.new === '1' || query.new === 'true',
         pathPrefixes: settings,
         basePath: APP,
