@@ -6,11 +6,12 @@ Self-hosted tools for your Plex Media Server. Run one Docker container, sign in 
 
 These ship in the image. Open **Tools** and click **Install** on the ones you want, then **Enable** them.
 
-- **Netflix Rewatch** — Netflix-style Continue Watching when you rewatch episodes
-- **Plex Notifier** — rank your most-watched actors and directors, track favourites, and get emailed when they or watchlist titles air on Freeview
-- **Letterboxd Watchlist Sync** — copy a public Letterboxd watchlist into your Plex watchlist
+- **Plex Notifier** — rank your most-watched actors and directors, track favourites, and get emailed when they or watchlist titles air on Freeview, or have them auto-recorded via your Plex DVR
 - **Preroll Scheduler** — cinema idents and trailers before films, from media buckets and date-range schedules
 - **Scheduled Recommendations** — film picks based on your Letterboxd ratings, added to a Plex collection or playlist, or emailed to you
+- **Netflix Rewatch** — Netflix-style Continue Watching when you rewatch episodes. Marks the proceeding episodes as unwatched so will appear in the Plex Continue Watching strip 
+- **Letterboxd Watchlist Sync** — copy a public Letterboxd watchlist into your Plex watchlist
+
 
 Click the pin next to an installed tool to add it to the sidebar under **Tools**.
 
