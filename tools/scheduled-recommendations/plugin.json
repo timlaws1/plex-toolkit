@@ -1,7 +1,7 @@
 {
   "id": "scheduled-recommendations",
   "name": "Scheduled Recommendations",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "apiVersion": 1,
   "author": "Thunderhat",
   "description": "Taste-based film picks from your Letterboxd history, published into Plex or emailed to you on a schedule.",
@@ -13,23 +13,17 @@
     "scheduler",
     "net.fetch",
     "mail.send",
-    "sql.recommendations"
+    "sql.recommendations",
+    "tmdb"
   ],
   "settingsSchema": [
-    {
-      "key": "tmdbApiKey",
-      "type": "secret",
-      "label": "TMDb API key",
-      "section": "Taste data",
-      "help": "Used to match films, read age certificates, and check streaming availability. Recommendations still run from your Plex library if this is blank."
-    },
     {
       "key": "watchRegion",
       "type": "string",
       "label": "Streaming region",
       "default": "GB",
       "section": "Taste data",
-      "help": "ISO country code for streaming availability, for example GB or US."
+      "help": "ISO country code for streaming availability, for example GB or US. Film matching, age certificates, and streaming checks use the TMDb key on the API keys page; recommendations still run from your Plex library without it."
     },
     {
       "key": "streamingServices",

@@ -1,7 +1,7 @@
 {
   "id": "plex-notifier",
   "name": "Plex Notifier",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "apiVersion": 1,
   "author": "Thunderhat",
   "description": "Rank most-watched actors and directors from your Plex library, search people, track favourites, and email when they (or watchlist titles) appear on Freeview.",
@@ -12,7 +12,8 @@
     "plex.dvr",
     "storage",
     "scheduler",
-    "mail.send"
+    "mail.send",
+    "tmdb"
   ],
   "settingsSchema": [
     {
@@ -95,13 +96,6 @@
       "default": [],
       "section": "Recordings",
       "help": "Movie library section where DVR recordings are saved (first selected is used)."
-    },
-    {
-      "key": "tmdbApiKey",
-      "type": "secret",
-      "label": "TMDB API key",
-      "section": "People",
-      "help": "Required to search and match tracked actors/directors against Freeview. Get a free key from themoviedb.org."
     },
     {
       "key": "digestTo",

@@ -144,8 +144,8 @@ test('checkForNewTrailers downloads and inserts without network stubs failing', 
     getSettings: () => ({
       downloadFolder,
       certRegion: 'GB',
-      tmdbApiKey: '',
     }),
+    getTmdbApiKey: () => '',
   });
 
   await service.checkForNewTrailers();

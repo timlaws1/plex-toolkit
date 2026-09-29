@@ -18,6 +18,7 @@ export async function activate(ctx) {
     trailerAddict,
     log: ctx.log,
     getSettings: () => ctx.settings.get(),
+    getTmdbApiKey: () => ctx.tmdb.apiKey(),
   });
 
   const settings = ctx.settings.get();

@@ -85,9 +85,13 @@ Tools that send email (Plex Notifier digests, emailed recommendations) share one
 
 Each tool can override the recipient in its own settings. If you set up SMTP inside Plex Notifier before this page existed, those settings are copied over automatically on first start.
 
+## API keys
+
+Tools that use TMDb (Plex Notifier, Scheduled Recommendations, Trailer Fetcher) share one API key. Add it on the **API keys** page (free from [themoviedb.org](https://www.themoviedb.org/settings/api)); **Test TMDb key** checks it works. If you saved a key inside one of those tools before this page existed, it is copied over automatically on first start.
+
 ## Scheduled Recommendations
 
-1. In the tool's settings, add a TMDb API key (free from themoviedb.org), your Letterboxd username, and tick the streaming services you subscribe to.
+1. Add a TMDb key on the **API keys** page. In the tool's settings, add your Letterboxd username and tick the streaming services you subscribe to.
 2. Open the tool and import your Letterboxd export ZIP (Letterboxd Settings → Import & Export). The RSS feed keeps your taste up to date after that.
 3. Create a schedule, or start from a preset (Tonight, Film Night, One Film Every Night, Weekend Films).
 

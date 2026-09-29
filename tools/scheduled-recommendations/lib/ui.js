@@ -55,8 +55,8 @@ function setupStrip({ setup }) {
     {
       ok: setup.tmdb,
       title: 'TMDb',
-      text: setup.tmdb ? 'Connected' : 'Add a key in settings',
-      href: setup.tmdb ? null : SETTINGS,
+      text: setup.tmdb ? 'Connected' : 'Add a key on the API keys page',
+      href: setup.tmdb ? null : '/keys',
     },
     {
       ok: services.length > 0,

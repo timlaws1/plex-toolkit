@@ -20,6 +20,7 @@ export function layout({ title, body, flash, user, nav, version, pinned = [], cu
     { href: '/plex', id: 'plex', label: 'Plex' },
     { href: '/plugins', id: 'plugins', label: 'Tools' },
     { href: '/mail', id: 'mail', label: 'Mail' },
+    { href: '/keys', id: 'keys', label: 'API keys' },
   ];
 
   const activePin = pinned.find((tool) =>

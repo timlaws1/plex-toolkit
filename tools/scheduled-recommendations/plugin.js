@@ -15,6 +15,7 @@ export async function activate(ctx) {
     log: ctx.log,
     fetchFn: (url, init) => ctx.fetch(url, init),
     getSettings: () => ctx.settings.get(),
+    getTmdbApiKey: () => ctx.tmdb.apiKey(),
     mail: ctx.mail,
   });
 
@@ -88,7 +89,7 @@ export async function handleRequest(ctx, req) {
       filmCount,
       setup: {
         films: filmCount,
-        tmdb: Boolean(ctx.settings.get().tmdbApiKey),
+        tmdb: ctx.tmdb.isConfigured(),
         services,
         mail: ctx.mail.isConfigured(),
       },

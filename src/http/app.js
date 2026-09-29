@@ -7,6 +7,7 @@ import {
 import { getSetting, setSetting } from '../db/index.js';
 import { loadMailSettings, mailConfigured, saveMailSettings } from '../mail/settings.js';
 import { sendMail } from '../mail/smtp.js';
+import { loadTmdbSettings, saveTmdbSettings, tmdbConfigured } from '../tmdb/settings.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -904,6 +905,70 @@ docker compose up -d</pre>
       flash(res, 'error', `Test email failed: ${err.message}`);
     }
     res.redirect('/mail');
+  });
+
+  app.get('/keys', requireAuth, (req, res) => {
+    const tmdb = loadTmdbSettings(db, secrets);
+    const ready = tmdbConfigured(tmdb);
+    render(req, res, {
+      title: 'API keys',
+      nav: 'keys',
+      body: `
+        ${pageHeader('API keys', 'Keys shared by every tool that needs them.')}
+        <form method="post" action="/keys">
+          <section class="settings-section panel">
+            <div class="panel-head">
+              <div>
+                <h2 class="panel-title">TMDb</h2>
+                <p class="panel-hint" style="margin-bottom:0">Film and people data for Plex Notifier, Scheduled Recommendations, and Trailer Fetcher. Get a free key from <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">themoviedb.org</a>.</p>
+              </div>
+              ${ready ? '<span class="badge ok">Saved</span>' : '<span class="badge warn">Not set</span>'}
+            </div>
+            <div class="field">
+              <label for="tmdb-key">API key</label>
+              <input id="tmdb-key" type="password" name="apiKey" value="" autocomplete="off" placeholder="${ready ? '•••••••• (leave blank to keep)' : ''}" />
+              <p class="field-help">Use the v3 API key, not the read access token.</p>
+            </div>
+            ${ready ? `<label class="toggle-row" style="margin-top:1rem">
+              <span class="toggle-copy">
+                <strong>Remove saved key</strong>
+                <span>Tools stop using TMDb until a new key is saved.</span>
+              </span>
+              <input type="checkbox" name="clear" value="1" />
+            </label>` : ''}
+          </section>
+          <div class="row-actions"><button class="primary" type="submit">Save API keys</button></div>
+        </form>
+        <form method="post" action="/keys/test" style="margin-top:1rem">
+          <div class="row-actions">
+            <button type="submit" ${ready ? '' : 'disabled'}>Test TMDb key</button>
+            ${ready ? '' : '<span class="muted">Save a key first.</span>'}
+          </div>
+        </form>
+      `,
+    });
+  });
+
+  app.post('/keys', requireAuth, (req, res) => {
+    saveTmdbSettings(db, secrets, req.body || {});
+    flash(res, 'ok', 'API keys saved');
+    res.redirect('/keys');
+  });
+
+  app.post('/keys/test', requireAuth, async (req, res) => {
+    const { apiKey } = loadTmdbSettings(db, secrets);
+    try {
+      if (!apiKey) throw new Error('Save a key first');
+      const url = new URL('https://api.themoviedb.org/3/configuration');
+      url.searchParams.set('api_key', apiKey);
+      const resp = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (resp.status === 401) throw new Error('TMDb rejected the key');
+      if (!resp.ok) throw new Error(`TMDb returned HTTP ${resp.status}`);
+      flash(res, 'ok', 'TMDb key works');
+    } catch (err) {
+      flash(res, 'error', `TMDb test failed: ${err.message}`);
+    }
+    res.redirect('/keys');
   });
 
   app.get('/plugins', requireAuth, (req, res) => {

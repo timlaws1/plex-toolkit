@@ -78,9 +78,9 @@ export function createTmdbClient({
   };
 }
 
-export function getTmdbConfig(settings = {}) {
+export function getTmdbConfig(settings = {}, apiKey = '') {
   return {
-    apiKey: settings.tmdbApiKey || '',
+    apiKey: apiKey || '',
     baseUrl: settings.tmdbBaseUrl || 'https://api.themoviedb.org/3',
   };
 }

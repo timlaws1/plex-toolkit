@@ -4,6 +4,7 @@ import { config, ensureDataDirs } from './config.js';
 import { openDatabase } from './db/index.js';
 import { ensureSecretKey, createSecrets } from './crypto/secrets.js';
 import { migrateLegacyMail } from './mail/settings.js';
+import { migrateLegacyTmdb } from './tmdb/settings.js';
 import { createLogger } from './log.js';
 import { EventBus } from './events/bus.js';
 import { PlexClient } from './plex/client.js';
@@ -30,6 +31,9 @@ async function main() {
   const secrets = createSecrets(key);
   if (migrateLegacyMail(db, secrets)) {
     log.info('Copied Plex Notifier SMTP settings to the Mail page');
+  }
+  if (migrateLegacyTmdb(db, secrets)) {
+    log.info('Copied a tool TMDb API key to the API keys page');
   }
   const clientId = ensureClientId(config.clientIdPath, config.plexClientId);
   const bus = new EventBus();

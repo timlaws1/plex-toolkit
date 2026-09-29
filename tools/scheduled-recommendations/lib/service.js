@@ -10,12 +10,13 @@ import { createStore, parseJsonList, syntheticUri } from './store.js';
 import { cacheFresh, createTmdbClient, mapTmdbMovie, MOVIE_TTL_MS, PROVIDER_TTL_MS, providerNames } from './tmdb.js';
 
 export class RecommendationsService {
-  constructor({ sql, plex, log, fetchFn, getSettings, mail = null, now = () => new Date() }) {
+  constructor({ sql, plex, log, fetchFn, getSettings, getTmdbApiKey = () => '', mail = null, now = () => new Date() }) {
     this.store = createStore(sql);
     this.plex = plex;
     this.log = log;
     this.fetchFn = fetchFn;
     this.getSettings = getSettings;
+    this.getTmdbApiKey = getTmdbApiKey;
     this.mail = mail;
     this.now = now;
     this.running = false;
@@ -384,7 +385,7 @@ export class RecommendationsService {
   }
 
   tmdb() {
-    const key = this.getSettings()?.tmdbApiKey;
+    const key = this.getTmdbApiKey();
     if (!key || !this.fetchFn) return null;
     return createTmdbClient({ apiKey: key, fetchFn: this.fetchFn });
   }

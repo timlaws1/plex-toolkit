@@ -1,5 +1,6 @@
 import { sendMail } from '../mail/smtp.js';
 import { loadMailSettings, mailConfigured } from '../mail/settings.js';
+import { loadTmdbSettings, tmdbConfigured } from '../tmdb/settings.js';
 import { browserFetch as defaultBrowserFetch } from '../net/browser-fetch.js';
 import fs from 'node:fs';
 import { promises as fsp } from 'node:fs';
@@ -399,6 +400,16 @@ export function createPluginApi({
           text,
           html,
         });
+      },
+    },
+    tmdb: {
+      isConfigured() {
+        requirePerm('tmdb');
+        return tmdbConfigured(loadTmdbSettings(db, secrets));
+      },
+      apiKey() {
+        requirePerm('tmdb');
+        return loadTmdbSettings(db, secrets).apiKey;
       },
     },
     changes: {

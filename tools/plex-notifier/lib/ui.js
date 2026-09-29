@@ -60,7 +60,7 @@ function trackForm({ name, tmdbPersonId, profilePath, tab, q, primary, disabled,
     ${profilePath ? `<input type="hidden" name="profilePath" value="${escapeHtml(profilePath)}" />` : ''}
     <input type="hidden" name="tab" value="${escapeHtml(tab)}" />
     <input type="hidden" name="q" value="${escapeHtml(q || '')}" />
-    <button type="submit" class="${primary ? 'primary' : ''}" ${disabled ? 'disabled title="Set a TMDB API key in settings first"' : ''}>${escapeHtml(label || 'Follow')}</button>
+    <button type="submit" class="${primary ? 'primary' : ''}" ${disabled ? 'disabled title="Add a TMDb key on the API keys page first"' : ''}>${escapeHtml(label || 'Follow')}</button>
   </form>`;
 }
 
@@ -207,7 +207,7 @@ export function renderApp({
 
   const tmdbNote = tmdbConfigured
     ? '<p class="field-help">Search TMDB, follow someone, then run a Freeview match.</p>'
-    : '<p class="field-help">Add a <strong>TMDB API key</strong> in settings to search and follow people.</p>';
+    : '<p class="field-help">Add a TMDb key on the <a href="/keys">API keys</a> page to search and follow people.</p>';
 
   return `
     <div class="page-header">

@@ -81,7 +81,7 @@ async function handleGet(ctx, req) {
   }));
 
   const settings = ctx.settings.get();
-  const tmdbConfigured = Boolean(getTmdbConfig(settings).apiKey);
+  const tmdbConfigured = Boolean(getTmdbConfig(settings, ctx.tmdb.apiKey()).apiKey);
   let tmdbHits = [];
   let tmdbError = null;
   if (q && tmdbConfigured) {
@@ -91,7 +91,7 @@ async function handleGet(ctx, req) {
       tmdbError = err.message;
     }
   } else if (q && !tmdbConfigured) {
-    tmdbError = 'Set a TMDB API key in plugin settings to search people.';
+    tmdbError = 'Add a TMDb key on the API keys page to search people.';
   }
 
   return {
@@ -192,7 +192,7 @@ async function handleTrack(ctx, body) {
   }
 
   if (!Number.isFinite(tmdbPersonId) || tmdbPersonId <= 0) {
-    throw new Error('Track a person from TMDB search results (requires TMDB API key)');
+    throw new Error('Track a person from TMDB search results (requires the TMDb key on the API keys page)');
   }
 
   trackPerson(ctx, {

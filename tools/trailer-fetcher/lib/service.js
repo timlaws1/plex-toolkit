@@ -41,15 +41,17 @@ export class TrailerFetcherService {
    *   trailerAddict: { fetchFeed(): Promise<object[]>, fetchVideoUrl(url: string): Promise<string|null> },
    *   log: object,
    *   getSettings: () => object,
+   *   getTmdbApiKey?: () => string,
    * }} opts
    */
-  constructor({ sql, fs, fetchFn, trailerAddict, log, getSettings }) {
+  constructor({ sql, fs, fetchFn, trailerAddict, log, getSettings, getTmdbApiKey }) {
     this.sql = sql;
     this.fs = fs;
     this.fetchFn = fetchFn;
     this.trailerAddict = trailerAddict;
     this.logger = log;
     this.getSettings = getSettings || (() => ({}));
+    this.getTmdbApiKey = getTmdbApiKey || (() => '');
   }
 
   getSettingsResolved() {
@@ -66,7 +68,7 @@ export class TrailerFetcherService {
   }
 
   createTmdbIfConfigured() {
-    const cfg = getTmdbConfig(this.getSettings());
+    const cfg = getTmdbConfig(this.getSettings(), this.getTmdbApiKey());
     if (!cfg.apiKey) return null;
     try {
       return createTmdbClient({ ...cfg, fetchFn: this.fetchFn });
@@ -108,7 +110,7 @@ export class TrailerFetcherService {
 
     const tmdb = this.createTmdbIfConfigured();
     if (!tmdb) {
-      this.logger.warn('Trailer Fetcher: TMDB API key not set — metadata will be omitted');
+      this.logger.warn('Trailer Fetcher: TMDb key not set on the API keys page — metadata will be omitted');
     }
 
     await this.fs.mkdir(downloadFolder);

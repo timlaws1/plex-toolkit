@@ -12,6 +12,7 @@ const KNOWN_PERMISSIONS = new Set([
   'scheduler',
   'changes',
   'mail.send',
+  'tmdb',
   'net.fetch',
   'fs.read',
   'fs.write',

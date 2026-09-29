@@ -88,9 +88,9 @@ export function untrackPerson(ctx, nameKeyOrId) {
 
 export async function searchTmdbPeople(ctx, query) {
   const settings = ctx.settings.get();
-  const cfg = getTmdbConfig(settings);
+  const cfg = getTmdbConfig(settings, ctx.tmdb.apiKey());
   if (!cfg.apiKey) {
-    throw new Error('Set a TMDB API key in plugin settings to search people');
+    throw new Error('Add a TMDb key on the API keys page to search people');
   }
   const tmdb = createTmdbClient(cfg);
   return tmdb.searchPerson(query, { limit: 12 });
@@ -101,7 +101,7 @@ export async function searchTmdbPeople(ctx, query) {
  */
 export async function loadFilmographyIndex(ctx, { force = false } = {}) {
   const settings = ctx.settings.get();
-  const cfg = getTmdbConfig(settings);
+  const cfg = getTmdbConfig(settings, ctx.tmdb.apiKey());
   const tracked = getTrackedPeople(ctx).filter(
     (p) => Number(p.tmdbPersonId) > 0,
   );
@@ -109,7 +109,7 @@ export async function loadFilmographyIndex(ctx, { force = false } = {}) {
     return { entries: [], people: 0, fromCache: true };
   }
   if (!cfg.apiKey) {
-    throw new Error('Set a TMDB API key in plugin settings to match tracked people');
+    throw new Error('Add a TMDb key on the API keys page to match tracked people');
   }
 
   const tmdb = createTmdbClient(cfg);

@@ -34,6 +34,7 @@ my-tool/
     "scheduler",
     "changes",
     "mail.send",
+    "tmdb",
     "net.fetch",
     "fs.read",
     "sql.preroll",
@@ -187,6 +188,13 @@ Key-value store scoped to the tool id:
 - `ctx.mail.send({ to, subject, text, html, from })` — sends through the host mail server on the **Mail** page; `to` and `from` fall back to the addresses saved there
 - `ctx.mail.isConfigured()` — true when a mail host and from address are saved
 - `ctx.mail.defaultTo()` — the default recipient from the Mail page
+
+### TMDb (`tmdb`)
+
+One TMDb API key is shared by every tool and saved on the **API keys** page. Do not add a TMDb key to a tool's own settings.
+
+- `ctx.tmdb.apiKey()` — the saved TMDb v3 API key, or `''` when none is set
+- `ctx.tmdb.isConfigured()` — true when a key is saved
 
 ### Change batches / undo (`changes`)
 
