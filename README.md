@@ -16,57 +16,56 @@ Click the pin next to an installed tool to add it to the sidebar under **Tools**
 
 ## Install
 
-Create a folder with a `.env` file:
+You need a machine that runs Docker with Docker Compose: a Linux server, a NAS, or Docker Desktop on Windows or Mac. You only edit one file, `.env`. Leave `docker-compose.yml` as it is.
+
+**1. Make a folder and download the two files**
 
 ```bash
-ADMIN_PASSWORD=choose-a-long-unique-password
-PORT=8001
-# Group that owns /var/run/docker.sock on the host (lets Home → Update replace the container)
-DOCKER_GID=
-# Host folder with your preroll videos (Preroll Scheduler)
-PREROLL_DIR=./prerolls
-# Address your Plex server can reach this toolkit on (shown on the Plex screen for webhooks)
-# PUBLIC_URL=http://192.168.1.20:8001
+mkdir plex-toolkit
+cd plex-toolkit
+curl -o docker-compose.yml https://raw.githubusercontent.com/timlaws1/plex-toolkit/main/docker-compose.yml
+curl -o .env https://raw.githubusercontent.com/timlaws1/plex-toolkit/main/.env.example
 ```
 
-and a `docker-compose.yml`:
+On Windows PowerShell, type `curl.exe` instead of `curl`. You can also download [`docker-compose.yml`](docker-compose.yml) and [`.env.example`](.env.example) from this page and rename the second one to `.env`.
 
-```yaml
-services:
-  plex-toolkit:
-    image: ghcr.io/timlaws1/plex-toolkit:latest
-    container_name: plex-toolkit
-    ports:
-      - "${PORT:-8787}:${PORT:-8787}"
-    environment:
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
-      PORT: ${PORT:-8787}
-      TZ: Europe/London
-      DATA_DIR: /data
-      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8787}
-      MEDIA_ROOTS: ${MEDIA_ROOTS:-/prerolls}
-    volumes:
-      - ./data:/data
-      - ${PREROLL_DIR:-./prerolls}:/prerolls
-      - /var/run/docker.sock:/var/run/docker.sock
-    group_add:
-      - "${DOCKER_GID}"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    restart: unless-stopped
+**2. Fill in `.env`**
+
+Open `.env` in a text editor and set:
+
+| Setting | What to put |
+| --- | --- |
+| `ADMIN_PASSWORD` | Required. A long, unique password for the toolkit's web page |
+| `PORT` | The port to open it on. `8787` unless something else already uses it |
+| `TZ` | Your time zone, for example `Europe/London` or `America/New_York`. Recommendation schedules run at this local time |
+| `PREROLL_DIR` | Only for Preroll Scheduler: the folder on this machine with your preroll videos. The default `./prerolls` is created next to `docker-compose.yml` |
+| `DOCKER_GID` | Optional, for one-click updates. Run `stat -c '%g' /var/run/docker.sock` and paste the number. On Docker Desktop, use `0`. Leave blank to update by hand |
+| `PUBLIC_URL` | Optional. Only needed if Plex can't reach the address you open the toolkit with, for example `http://192.168.1.20:8787` |
+
+**3. Start it**
+
+```bash
+docker compose up -d
 ```
 
-Start it with `docker compose up -d`, open `http://your-host:8001`, and sign in with `ADMIN_PASSWORD`.
+**4. Sign in**
 
-`TZ` matters: recommendation schedules run at local time.
+Open `http://your-server:8787` (use your `PORT` if you changed it) and sign in with `ADMIN_PASSWORD`. Then [connect Plex](#connect-plex) and install the tools you want from **Tools**.
+
+**Changing a setting later:** edit `.env`, then run `docker compose up -d` again. Your data is kept.
 
 ## Updating
 
-**Home** shows the running version. When a newer build is available, click **Update** and the toolkit pulls the new image and restarts itself.
+**Home** shows the running version. When a newer build is available, click **Update** and the toolkit pulls the new image and restarts itself. This needs `DOCKER_GID` set in `.env`.
+
+Without it, update from the folder with `docker-compose.yml`:
+
+```bash
+docker compose pull
+docker compose up -d
+```
 
 Your settings, Plex token, and database live in `./data` and are kept. Installed tools keep their settings and enabled state.
-
-The Docker socket mount and `DOCKER_GID` are what make this work. If you leave them out, update from the host with `docker compose pull && docker compose up -d` instead.
 
 ## Connect Plex
 
@@ -121,24 +120,26 @@ If a bucket shows a permission error, the folder is owned by a different user th
 - Use a strong, unique `ADMIN_PASSWORD`.
 - Keep the port on your LAN, or behind a reverse proxy with TLS. Do not expose it to the internet unprotected.
 - Treat `./data` as sensitive: it holds the encryption key, encrypted Plex token, database, and tool settings.
-- The Docker socket mount lets the toolkit control Docker on the host. Leave it out if you would rather update by hand.
+- The Docker socket mount lets the toolkit control Docker on the host when `DOCKER_GID` is set. If you would rather it had no access at all, delete the `docker.sock` line and the `group_add` block from `docker-compose.yml` and update by hand.
 - `POST /webhooks/plex` has no login, so Plex can call it.
 - Only tools from the image can be installed. Anything else under `./data/plugins` is removed on start.
 
 ## Environment
 
+All of these go in `.env`.
+
 | Variable | Description |
 | --- | --- |
 | `ADMIN_PASSWORD` | Required. Admin password |
 | `PORT` | Port to listen on. Default `8787` |
+| `TZ` | Time zone for schedules. Default `Europe/London` |
+| `PREROLL_DIR` | Host folder mounted at `/prerolls` for Preroll Scheduler. Default `./prerolls` |
 | `DOCKER_GID` | Group that owns `/var/run/docker.sock`, for in-app updates |
-| `PREROLL_DIR` | Host folder mounted at `/prerolls` for Preroll Scheduler |
-| `PUBLIC_URL` | Address Plex can reach the toolkit on, used for the webhook URL |
-| `TZ` | Time zone for schedules, for example `Europe/London` |
-| `DATA_DIR` | Data folder. `/data` in Docker |
-| `MEDIA_ROOTS` | Folders file-reading tools may use, separated by `;`. Default `/prerolls` in Docker |
+| `PUBLIC_URL` | Address Plex can reach the toolkit on, used for the webhook URL. Default: the address you open the toolkit with |
+| `MEDIA_ROOTS` | Container folders file-reading tools may use, separated by `;`. Default `/prerolls` |
 | `PLEX_CLIENT_ID` | Optional fixed Plex app id. Otherwise generated in `data/config/client.id` |
-| `SECRET_KEY` | Optional 64-character hex key. Otherwise generated in `data/config/secret.key` |
+| `SECRET_KEY` | Optional 64-character hex key. Otherwise generated in `data/config/secret.key`. Set it before the first start only: changing it later makes the saved Plex token unreadable |
+| `DATA_DIR` | Data folder when running without Docker. Default `./data` (Docker always uses `/data`) |
 
 ## Development
 
@@ -148,6 +149,13 @@ npm install
 npm start
 npm test
 npm run css            # rebuild styles after editing src/http/public/input.css
+```
+
+To try a local Docker build with the normal `docker-compose.yml`, tag it with the published name:
+
+```bash
+docker build -t ghcr.io/timlaws1/plex-toolkit:latest .
+docker compose up -d
 ```
 
 See [docs/plugin-api.md](docs/plugin-api.md) for the host API tools use.

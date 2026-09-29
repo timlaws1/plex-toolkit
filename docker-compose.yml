@@ -1,29 +1,28 @@
 services:
   plex-toolkit:
     image: ghcr.io/timlaws1/plex-toolkit:latest
-    build: .
     container_name: plex-toolkit
     ports:
       - "${PORT:-8787}:${PORT:-8787}"
     environment:
-      # Required: set in .env — do not use a weak or default password
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
       PORT: ${PORT:-8787}
+      TZ: ${TZ:-Europe/London}
       DATA_DIR: /data
-      # Optional stable OAuth client id (otherwise generated under /data/config/client.id)
-      PLEX_CLIENT_ID: ${PLEX_CLIENT_ID:-}
-      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8787}
-      # Restrict fs.read tools (Preroll) to mounted preroll roots — see README “Preroll Scheduler”
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      # Folders file-reading tools may use (Preroll Scheduler). Container paths.
       MEDIA_ROOTS: ${MEDIA_ROOTS:-/prerolls}
+      PLEX_CLIENT_ID: ${PLEX_CLIENT_ID:-}
+      SECRET_KEY: ${SECRET_KEY:-}
     volumes:
       - ./data:/data
-      # Preroll media for Preroll Scheduler (container path /prerolls — not the host path)
+      # Preroll videos: host folder PREROLL_DIR appears as /prerolls inside the container
       - ${PREROLL_DIR:-./prerolls}:/prerolls
-      # Optional: lets Home → Update replace this container.
-      # DOCKER_GID is the group that owns /var/run/docker.sock on the host.
+      # Lets Home → Update replace this container. Remove this line and group_add to update by hand.
       - /var/run/docker.sock:/var/run/docker.sock
     group_add:
-      - "${DOCKER_GID}"
+      # Group that owns /var/run/docker.sock. 1000 is the container's own group (no extra access).
+      - "${DOCKER_GID:-1000}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
