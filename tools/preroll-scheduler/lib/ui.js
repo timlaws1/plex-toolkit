@@ -136,7 +136,19 @@ Trailers &amp; Adverts → 1 random</pre>
 
   const sequence =
     (steps || []).length > 0
-      ? `<p><strong>${escapeHtml(formatSequence(steps))}</strong></p>`
+      ? `<ol class="list-stack">${groupSteps(steps)
+          .map((group, i) => {
+            const name = (s) => s.bucket_name || `Bucket #${s.bucket_id}`;
+            if (group.length === 1) {
+              return `<li class="list-row"><div><strong>${i + 1}. ${escapeHtml(name(group[0]))}</strong><div class="muted">${escapeHtml(String(group[0].count))} random</div></div></li>`;
+            }
+            const sameCount = group.every((s) => s.count === group[0].count);
+            const detail = sameCount
+              ? `${group[0].count} random from one of these`
+              : `One of: ${group.map((s) => `${name(s)} (${s.count})`).join(', ')}`;
+            return `<li class="list-row"><div><strong>${i + 1}. ${group.map((s) => escapeHtml(name(s))).join(' <span class="muted">or</span> ')}</strong><div class="muted">${escapeHtml(detail)}</div></div></li>`;
+          })
+          .join('')}</ol>`
       : `<p class="muted">No steps on the active schedule.</p>`;
 
   const warning = state?.warning
@@ -425,6 +437,7 @@ export function renderSchedules({
 function scheduleForm(schedule, buckets, steps, basePath) {
   const isEdit = Boolean(schedule.id);
   const rows = steps.length ? steps : [{ bucket_id: buckets[0]?.id, count: 1 }];
+  let num = 0;
   const stepRows = rows
     .map((st, i) => {
       const prev = rows[i - 1];
@@ -434,7 +447,8 @@ function scheduleForm(schedule, buckets, steps, basePath) {
         st.group_position === prev.group_position
           ? 'or'
           : 'and';
-      return stepRow(buckets, st.bucket_id || st.bucketId, st.count, join);
+      if (join === 'and') num += 1;
+      return stepRow(buckets, st.bucket_id || st.bucketId, st.count, join, num);
     })
     .join('');
 
@@ -486,12 +500,13 @@ function scheduleForm(schedule, buckets, steps, basePath) {
       <div class="toggle-copy"><strong>Enabled</strong></div>
       <input type="checkbox" name="enabled" value="1" ${schedule.enabled === 0 || schedule.enabled === false ? '' : 'checked'} />
     </div>
-    <h3 class="panel-title" style="margin-top:1rem">Sequence</h3>
-    <p class="panel-hint">Ordered bucket steps. The same bucket can appear more than once. <strong>And</strong> always plays the step as well; <strong>Or</strong> makes it an alternative to the step above, and consecutive ors are one choice (exactly one of them plays).</p>
-    <style>#steps .preroll-step:first-child .step-join { visibility: hidden; }</style>
-    <div id="steps">${stepRows}</div>
-    <div class="row-actions" style="margin:0.75rem 0">
-      <button type="button" class="ghost" id="add-step">Add step</button>
+    <h3 class="panel-title" style="margin-top:1.5rem">Sequence</h3>
+    <p class="panel-hint">Steps play top to bottom, and the same bucket can appear more than once. Switch a step to <strong>Or</strong> to make it an alternative to the step above: steps sharing a number are one choice, and only one of them plays.</p>
+    ${STEP_STYLES}
+    <div class="pr-steps-head" aria-hidden="true"><span></span><span>Bucket</span><span>Count</span><span></span></div>
+    <div id="steps" class="pr-steps">${stepRows}</div>
+    <div class="row-actions" style="margin:0.75rem 0 0">
+      <button type="button" class="ghost" id="add-step">+ Add step</button>
     </div>
     <div class="row-actions">
       <button class="primary" type="submit">${isEdit ? 'Save schedule' : 'Create schedule'}</button>
@@ -505,53 +520,140 @@ function scheduleForm(schedule, buckets, steps, basePath) {
       var steps = document.getElementById('steps');
       var tpl = document.getElementById('step-template');
       if (!add || !steps || !tpl) return;
+      function refresh() {
+        var rows = steps.querySelectorAll('.pr-step');
+        var group = 0;
+        var sizes = {};
+        var groupOf = [];
+        rows.forEach(function (row, i) {
+          var join = row.querySelector('select[name="step_join"]');
+          var isOr = i > 0 && join.value === 'or';
+          if (!isOr) group += 1;
+          groupOf.push(group);
+          sizes[group] = (sizes[group] || 0) + 1;
+          row.classList.toggle('is-or', isOr);
+          row.querySelector('.pr-join-hint').textContent = isOr
+            ? 'play this instead of the step above'
+            : 'then also play';
+        });
+        rows.forEach(function (row, i) {
+          row.querySelector('.pr-num').textContent = groupOf[i];
+          row.classList.toggle('in-choice', sizes[groupOf[i]] > 1);
+          row.querySelector('.move-up').disabled = i === 0;
+          row.querySelector('.move-down').disabled = i === rows.length - 1;
+          row.querySelector('.remove-step').disabled = rows.length === 1;
+        });
+      }
       add.addEventListener('click', function () {
         steps.appendChild(tpl.content.cloneNode(true));
+        refresh();
+      });
+      steps.addEventListener('change', function (e) {
+        if (e.target && e.target.name === 'step_join') refresh();
       });
       steps.addEventListener('click', function (e) {
-        var t = e.target;
+        var t = e.target && e.target.closest('button');
         if (!t) return;
-        var row = t.closest('.preroll-step');
+        var row = t.closest('.pr-step');
         if (!row) return;
         if (t.classList.contains('remove-step')) {
-          if (steps.querySelectorAll('.preroll-step').length > 1) row.remove();
-          return;
-        }
-        if (t.classList.contains('move-up')) {
+          if (steps.querySelectorAll('.pr-step').length > 1) row.remove();
+        } else if (t.classList.contains('move-up')) {
           if (row.previousElementSibling) steps.insertBefore(row, row.previousElementSibling);
-          return;
+        } else if (t.classList.contains('move-down')) {
+          if (row.nextElementSibling) steps.insertBefore(row.nextElementSibling, row);
         }
-        if (t.classList.contains('move-down') && row.nextElementSibling) {
-          steps.insertBefore(row.nextElementSibling, row);
-        }
+        refresh();
       });
+      refresh();
     })();
   </script>`;
 }
 
-function stepRow(buckets, bucketId, count, join) {
+const STEP_STYLES = `<style>
+  .pr-steps-head, .pr-step-card {
+    display: grid;
+    grid-template-columns: 1.75rem minmax(0, 1fr) 5.5rem 8.25rem;
+    gap: 0.75rem;
+    align-items: center;
+  }
+  .pr-steps-head { padding: 0 0.75rem 0.4rem; }
+  .pr-steps-head span { color: var(--color-mute); font-size: 0.8rem; }
+  .pr-step-card {
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--color-line);
+    border-radius: 0.75rem;
+    background: color-mix(in srgb, var(--color-panel-2) 45%, transparent);
+  }
+  .pr-num {
+    display: grid;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-line);
+    background: var(--color-panel);
+    color: var(--color-mute);
+    font-size: 0.8rem;
+    font-weight: 650;
+  }
+  .pr-actions { display: flex; gap: 0.25rem; justify-content: flex-end; }
+  .pr-actions button { padding: 0.45rem 0.6rem; min-width: 2.1rem; }
+  .pr-actions .remove-step:not(:disabled):hover { color: #ffb4c8; }
+  .pr-join {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-left: calc(0.75rem + 0.875rem - 1px);
+    padding: 0.4rem 0 0.4rem 1.1rem;
+    border-left: 2px solid var(--color-line);
+  }
+  .pr-join select {
+    width: auto;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 650;
+  }
+  .pr-join-hint { color: var(--color-mute); font-size: 0.8rem; }
+  .pr-step:first-child .pr-join { display: none; }
+  .pr-step.is-or .pr-join { border-left-color: var(--color-accent); }
+  .pr-step.is-or .pr-join select {
+    border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-line));
+    color: var(--color-accent);
+  }
+  .pr-step.in-choice .pr-step-card {
+    border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-line));
+  }
+  .pr-step.in-choice .pr-num {
+    border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-line));
+    color: var(--color-accent);
+  }
+  @media (max-width: 640px) {
+    .pr-steps-head { display: none; }
+    .pr-step-card { grid-template-columns: 1.75rem minmax(0, 1fr) 4.5rem; }
+    .pr-actions { grid-column: 2 / -1; justify-content: flex-start; }
+  }
+</style>`;
+
+function stepRow(buckets, bucketId, count, join, num = '') {
   return `
-      <div class="field-grid preroll-step">
-        <div class="field step-join">
-          <label>Join</label>
-          <select name="step_join">
+      <div class="pr-step${join === 'or' ? ' is-or' : ''}">
+        <div class="pr-join">
+          <select name="step_join" aria-label="How this step joins the one above">
             <option value="and" ${join !== 'or' ? 'selected' : ''}>And</option>
             <option value="or" ${join === 'or' ? 'selected' : ''}>Or</option>
           </select>
+          <span class="pr-join-hint">${join === 'or' ? 'play this instead of the step above' : 'then also play'}</span>
         </div>
-        <div class="field">
-          <label>Bucket</label>
-          <select name="step_bucket">${bucketOptions(buckets, bucketId)}</select>
-        </div>
-        <div class="field">
-          <label>Count</label>
-          <input type="number" name="step_count" min="1" max="20" value="${escapeHtml(String(count || 1))}" />
-        </div>
-        <div class="field" style="align-self:end">
-          <div class="row-actions">
-            <button type="button" class="ghost move-up" title="Move up">↑</button>
-            <button type="button" class="ghost move-down" title="Move down">↓</button>
-            <button type="button" class="danger remove-step">Remove</button>
+        <div class="pr-step-card">
+          <span class="pr-num">${num}</span>
+          <select name="step_bucket" aria-label="Bucket">${bucketOptions(buckets, bucketId)}</select>
+          <input type="number" name="step_count" min="1" max="20" aria-label="Count" value="${escapeHtml(String(count || 1))}" />
+          <div class="pr-actions">
+            <button type="button" class="ghost move-up" title="Move up" aria-label="Move up">↑</button>
+            <button type="button" class="ghost move-down" title="Move down" aria-label="Move down">↓</button>
+            <button type="button" class="ghost remove-step" title="Remove step" aria-label="Remove step">✕</button>
           </div>
         </div>
       </div>`;
