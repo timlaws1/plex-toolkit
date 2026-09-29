@@ -303,13 +303,13 @@ export function createApp(ctx) {
           </div>
         </div>
 
-        <div class="panel" style="margin-top:1.25rem">
+        <div class="panel">
           <h2 class="panel-title">Tools</h2>
           <p class="panel-hint">Open a tool to change settings or use it.</p>
           <div class="list-stack">${pluginRows}</div>
         </div>
 
-        <div class="panel" style="margin-top:1.25rem">
+        <div class="panel">
           <h2 class="panel-title">Recent activity</h2>
           <div class="feed">${activityRows}</div>
         </div>

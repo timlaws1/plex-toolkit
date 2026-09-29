@@ -307,7 +307,7 @@
   }
 
   .stat-grid {
-    @apply grid gap-3 sm:grid-cols-2 xl:grid-cols-4;
+    @apply mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4;
   }
 
   .stat-card {
@@ -410,8 +410,13 @@
     @apply grid gap-4 sm:grid-cols-2;
   }
 
-  .field-grid > .field + .field {
+  .field-grid > .field + .field,
+  .field-grid > .panel + .panel {
     @apply mt-0;
+  }
+
+  .field-grid + .panel {
+    @apply mt-4;
   }
 
   .toggle-row {
@@ -644,11 +649,11 @@
 
   /* Recommendations app */
   .setup-strip {
-    @apply mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4;
+    @apply mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4;
   }
 
   .setup-item {
-    @apply flex items-start gap-2.5 rounded-xl border border-line bg-panel px-3.5 py-3 text-sm text-ink no-underline;
+    @apply flex items-start gap-2.5 rounded-[length:var(--radius-panel)] border border-line bg-panel p-4 text-sm text-ink no-underline;
   }
 
   a.setup-item:hover {
