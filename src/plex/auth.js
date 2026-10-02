@@ -19,6 +19,20 @@ export function ensureClientId(clientIdPath, envClientId) {
   return id;
 }
 
+export function ensureWebhookToken(tokenPath, envToken) {
+  if (envToken && String(envToken).trim()) {
+    return String(envToken).trim();
+  }
+  if (fs.existsSync(tokenPath)) {
+    const existing = fs.readFileSync(tokenPath, 'utf8').trim();
+    if (existing) return existing;
+  }
+  const token = crypto.randomBytes(24).toString('hex');
+  fs.mkdirSync(tokenPath.replace(/[/\\][^/\\]+$/, ''), { recursive: true });
+  fs.writeFileSync(tokenPath, token, { mode: 0o600 });
+  return token;
+}
+
 export function productHeaders(clientId, token) {
   const headers = {
     Accept: 'application/json',

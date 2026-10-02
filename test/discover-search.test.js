@@ -152,3 +152,96 @@ test('searchDiscover falls back to server hub search when Discover fails', async
     globalThis.fetch = original;
   }
 });
+
+const DISCOVER_HOSTS = new Set(['discover.provider.plex.tv', 'metadata.provider.plex.tv']);
+
+function recordingFetch(calls) {
+  return async (url) => {
+    const parsed = new URL(String(url));
+    calls.push(parsed);
+    return jsonResponse({
+      MediaContainer: {
+        totalSize: 0,
+        Metadata: [{ ratingKey: '1', type: 'movie', title: 'Stub' }],
+      },
+    });
+  };
+}
+
+test('getDiscoverMetadata accepts rating keys and metadata paths only', async () => {
+  const calls = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = recordingFetch(calls);
+  try {
+    const client = new PlexClient({ url: 'http://plex.local:32400', token: 'tok', clientId: 'cid' });
+    await client.getDiscoverMetadata('5d776825880197001ec967c6');
+    await client.getDiscoverMetadata(123);
+    await client.getDiscoverMetadata('/library/metadata/123');
+    assert.deepEqual(
+      calls.map((u) => u.pathname),
+      ['/library/metadata/5d776825880197001ec967c6', '/library/metadata/123', '/library/metadata/123'],
+    );
+    for (const u of calls) assert.ok(DISCOVER_HOSTS.has(u.host), u.host);
+
+    const before = calls.length;
+    for (const bad of [
+      '//evil.example/library/metadata/1',
+      'https://evil.example/library/metadata/1',
+      '/\\evil.example',
+      '/library/metadata/1?x=1',
+      '/library/metadata/1#x',
+      '/library/metadata/../../x',
+      '../x',
+      '',
+    ]) {
+      await assert.rejects(client.getDiscoverMetadata(bad), /rating key/, bad);
+    }
+    assert.equal(calls.length, before);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('accountRequest refuses to send the token to a non-Discover host', async () => {
+  const calls = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = recordingFetch(calls);
+  try {
+    const client = new PlexClient({ url: 'http://plex.local:32400', token: 'tok', clientId: 'cid' });
+    await assert.rejects(
+      client.accountRequest('GET', 'https://discover.provider.plex.tv', '//evil.example/x'),
+      /Discover host/,
+    );
+    await assert.rejects(
+      client.accountRequest('GET', 'https://discover.provider.plex.tv', 'http://discover.provider.plex.tv/x'),
+      /Discover host/,
+    );
+    assert.equal(calls.length, 0);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('dynamic Plex path segments are encoded and cannot change the host', async () => {
+  const calls = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = recordingFetch(calls);
+  try {
+    const client = new PlexClient({ url: 'http://plex.local:32400', token: 'tok', clientId: 'cid' });
+    await client.getLibraryItems('../../evil', {});
+    await client.getShows('//evil.example');
+    await client.getPlaylistItems('1/../../x');
+    for (const u of calls) assert.equal(u.host, 'plex.local:32400');
+    assert.equal(calls[0].pathname, '/library/sections/..%2F..%2Fevil/all');
+    assert.equal(calls[1].pathname, '/library/sections/%2F%2Fevil.example/all');
+    assert.equal(calls[2].pathname, '/playlists/1%2F..%2F..%2Fx/items');
+
+    const before = calls.length;
+    await assert.rejects(client.getMetadata('..'), /Invalid Plex id/);
+    await assert.rejects(client.getMetadata(''), /Invalid Plex id/);
+    await assert.rejects(client.request('GET', '//evil.example/x'), /leaves the server/);
+    assert.equal(calls.length, before);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

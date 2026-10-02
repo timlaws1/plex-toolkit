@@ -1,0 +1,48 @@
+{
+  "id": "letterboxd-diary",
+  "name": "Letterboxd Diary",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "author": "Thunderhat",
+  "description": "Mark the films in your Letterboxd diary as watched in Plex. Import your export ZIP once, then optionally keep up with new diary entries from your RSS feed.",
+  "entry": "plugin.js",
+  "permissions": [
+    "plex.read",
+    "plex.watch_state",
+    "net.fetch",
+    "storage",
+    "scheduler",
+    "changes"
+  ],
+  "settingsSchema": [
+    {
+      "key": "libraries",
+      "type": "plexLibraries",
+      "label": "Movie libraries",
+      "default": [],
+      "help": "No libraries are selected by default. Only films in these movie libraries are marked watched."
+    },
+    {
+      "key": "letterboxdUsername",
+      "type": "string",
+      "label": "Letterboxd username",
+      "default": "",
+      "help": "Public username. Only needed for catch-up from your diary RSS feed."
+    },
+    {
+      "key": "catchUp",
+      "type": "boolean",
+      "label": "Catch up from RSS",
+      "default": false,
+      "help": "Check your Letterboxd RSS feed on a schedule and mark new diary entries watched. The feed only holds recent entries, so import the export ZIP for older ones."
+    },
+    {
+      "key": "intervalHours",
+      "type": "number",
+      "label": "Catch-up interval (hours)",
+      "default": 6,
+      "min": 1,
+      "max": 168
+    }
+  ]
+}

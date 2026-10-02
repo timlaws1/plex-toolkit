@@ -16,7 +16,12 @@ import {
   startContainer,
   stopContainer,
 } from './docker.js';
-import { imageRefFromInspect, splitImageRef } from './version.js';
+import {
+  imageRefFromInspect,
+  pinnedImageRef,
+  splitImageRef,
+  UPDATE_IMAGE_LABEL,
+} from './version.js';
 
 const UPDATER_NAME = 'plex-toolkit-updater';
 
@@ -116,9 +121,10 @@ export async function applyUpdate({ containerId, image }) {
   await pullImage(image, parts);
 
   const current = await inspectContainer(containerId);
+  const pulledRef = parts.tag ? `${parts.fromImage}:${parts.tag}` : image;
   const pulled = await dockerJson({
     method: 'GET',
-    path: `/images/${parts.fromImage}:${parts.tag || 'latest'}/json`,
+    path: `/images/${pulledRef}/json`,
   }).catch(() => null);
   if (pulled?.Id && pulled.Id === current.Image) {
     writeUpdateResult({
@@ -128,13 +134,23 @@ export async function applyUpdate({ containerId, image }) {
     return { updated: false };
   }
 
+  // The tag can move between pull and create; run exactly what was pulled.
+  const pinned = pinnedImageRef(pulled, parts.fromImage);
+  if (!pinned) {
+    throw new Error(`Pulled ${image} but could not read its digest`);
+  }
+  writeUpdateResult({ state: 'running', message: `Pulled ${pinned}` });
+
   const name = containerName(current);
   const oldName = `${name}-previous`;
   const nextName = `${name}-next`;
   await removeIfPresent(oldName);
   await removeIfPresent(nextName);
 
-  const created = await createContainer(nextName, replacementSpec(current, image));
+  const created = await createContainer(
+    nextName,
+    replacementSpec(current, pinned, { labels: { [UPDATE_IMAGE_LABEL]: image } }),
+  );
   try {
     await stopContainer(containerId);
     await renameContainer(containerId, oldName);
@@ -143,7 +159,7 @@ export async function applyUpdate({ containerId, image }) {
     await removeContainer(containerId);
     writeUpdateResult({
       state: 'updated',
-      message: `Updated ${name} to ${image}.`,
+      message: `Updated ${name} to ${image} (${pinned}).`,
     });
     return { updated: true };
   } catch (err) {

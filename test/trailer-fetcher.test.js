@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { cleanFilmTitle } from '../tools/trailer-fetcher/lib/traileraddict.js';
+import {
+  cleanFilmTitle,
+  createTrailerAddictClient,
+  isTrailerAddictPageUrl,
+} from '../tools/trailer-fetcher/lib/traileraddict.js';
 import {
   isPastRetention,
   TrailerFetcherService,
@@ -21,6 +25,30 @@ test('cleanFilmTitle strips TrailerAddict RSS suffixes', () => {
   assert.equal(cleanFilmTitle('Dune: Part Three: Final Trailer'), 'Dune: Part Three');
   assert.equal(cleanFilmTitle('Example Movie Teaser Trailer'), 'Example Movie');
   assert.equal(cleanFilmTitle('Global Hit: Global Trailer'), 'Global Hit');
+});
+
+test('TrailerAddict item pages are fetched only from the TrailerAddict site', async () => {
+  assert.equal(isTrailerAddictPageUrl('https://traileraddict.com/trailer/x'), true);
+  assert.equal(isTrailerAddictPageUrl('https://www.traileraddict.com/trailer/x'), true);
+  assert.equal(isTrailerAddictPageUrl('http://traileraddict.com/trailer/x'), false);
+  assert.equal(isTrailerAddictPageUrl('https://traileraddict.com.evil.example/x'), false);
+  assert.equal(isTrailerAddictPageUrl('https://evil.example/?u=traileraddict.com'), false);
+  assert.equal(isTrailerAddictPageUrl('https://traileraddict.com:8443/x'), false);
+  assert.equal(isTrailerAddictPageUrl('http://169.254.169.254/latest/meta-data'), false);
+
+  const fetched = [];
+  const client = createTrailerAddictClient({
+    fetchFn: async (url) => {
+      fetched.push(url);
+      return new Response('<a href="https://video.traileraddict.com/enc/abc.mp4">x</a>');
+    },
+  });
+  await assert.rejects(client.fetchVideoUrl('http://169.254.169.254/'), /Not a TrailerAddict page/);
+  assert.equal(fetched.length, 0);
+  assert.equal(
+    await client.fetchVideoUrl('https://traileraddict.com/trailer/x'),
+    'https://video.traileraddict.com/enc/abc.mp4',
+  );
 });
 
 test('isPastRetention respects retention days from release date', () => {

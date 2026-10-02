@@ -20,7 +20,11 @@ import {
   parseStepsFromBody,
   formatSequence,
 } from '../tools/preroll-scheduler/lib/ui.js';
-import { PrerollService } from '../tools/preroll-scheduler/lib/service.js';
+import {
+  CINEMA_PREROLL_PREF,
+  PrerollService,
+  restrictPreferenceWrites,
+} from '../tools/preroll-scheduler/lib/service.js';
 import {
   toPlexPath,
   buildPlexPrerollValue,
@@ -29,7 +33,10 @@ import {
 import {
   assertPathAllowed,
   parseMediaRoots,
+  writeFileReplacing,
 } from '../src/plugins/fs-scope.js';
+import express from 'express';
+import { streamPluginFile } from '../src/http/app.js';
 import {
   assertSqlTablesAllowed,
   createScopedSql,
@@ -326,6 +333,101 @@ test('createScopedSql allows preroll prepare and blocks others', () => {
   db.close();
 });
 
+test('scoped sql blocks comma joins, extra statements, and PRAGMA', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-sql-bypass-'));
+  const db = openDatabase(path.join(dir, 't.sqlite'));
+  const sql = createScopedSql(db);
+  try {
+    assert.throws(
+      () => sql.prepare('SELECT token_encrypted FROM preroll_state, plex_servers'),
+      /disallowed table: plex_servers/,
+    );
+    assert.throws(
+      () => sql.exec("SELECT 1 FROM preroll_state; ATTACH DATABASE ':memory:' AS x"),
+      /single statement|not allowed/,
+    );
+    assert.throws(() => sql.exec('PRAGMA table_info(plex_servers)'), /not allowed/);
+    assert.throws(() => sql.prepare('PRAGMA journal_mode'), /not allowed/);
+    assert.throws(() => sql.exec('VACUUM'), /not allowed/);
+    assert.throws(
+      () => sql.prepare('SELECT * FROM preroll_state WHERE id IN (SELECT id FROM sessions)'),
+      /sessions/,
+    );
+    assert.throws(() => sql.prepare('SELECT * FROM (preroll_state, plugin_settings)'), /plugin_settings/);
+    assert.throws(
+      () => sql.prepare('SELECT * FROM (SELECT 1) AS s, plugin_settings'),
+      /plugin_settings/,
+    );
+    assert.throws(() => sql.prepare('SELECT * FROM main.plex_servers'), /plex_servers/);
+    assert.throws(() => sql.prepare('SELECT * FROM temp.preroll_state'), /another database/);
+    assert.throws(() => sql.prepare('SELECT * FROM "plex_servers"'), /plex_servers/);
+    assert.throws(() => sql.prepare("SELECT * FROM 'plex_servers'"), /plex_servers/);
+    assert.throws(() => sql.prepare('SELECT * FROM preroll_state JOIN [plex_servers]'), /plex_servers/);
+    assert.throws(
+      () => sql.prepare('SELECT * FROM preroll_state, pragma_table_info(?)'),
+      /pragma_table_info/,
+    );
+    assert.throws(() => sql.prepare('SELECT * FROM preroll_state, sqlite_master'), /sqlite_master/);
+    assert.throws(
+      () => sql.prepare('WITH plex_servers AS (SELECT 1) SELECT * FROM preroll_state, plex_servers'),
+      /plex_servers/,
+    );
+    assert.throws(
+      () => sql.prepare('SELECT load_extension(?) FROM preroll_state'),
+      /LOAD_EXTENSION/,
+    );
+    assert.throws(
+      () => sql.exec('CREATE TRIGGER t AFTER INSERT ON preroll_state BEGIN DELETE FROM plex_servers; END'),
+      /single statement|CREATE/,
+    );
+    assert.throws(() => sql.exec('CREATE VIEW v AS SELECT * FROM preroll_state'), /CREATE TABLE/);
+    assert.throws(
+      () => sql.prepare('UPDATE preroll_state SET value = (SELECT token_encrypted FROM plex_servers)'),
+      /plex_servers/,
+    );
+    assert.throws(() => sql.prepare('SELECT 1'), /allowlisted table/);
+
+    assert.doesNotThrow(() =>
+      sql.prepare(`
+        INSERT INTO preroll_items
+          (bucket_id, filename, relative_path, size_bytes, mtime_ms, duration_ms, enabled, missing, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 1, 0, datetime('now'))
+        ON CONFLICT(bucket_id, relative_path) DO UPDATE SET
+          filename = excluded.filename,
+          missing = 0,
+          updated_at = datetime('now')
+      `),
+    );
+    assert.doesNotThrow(() =>
+      sql.prepare('WITH recent AS (SELECT id FROM preroll_history) SELECT * FROM recent'),
+    );
+  } finally {
+    db.close();
+  }
+});
+
+test('scoped sql never hands out the host database', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-sql-leak-'));
+  const db = openDatabase(path.join(dir, 't.sqlite'));
+  const sql = createScopedSql(db);
+  try {
+    const stmt = sql.prepare('SELECT id FROM preroll_state WHERE id = ?');
+    assert.equal(stmt.database, undefined);
+    assert.equal(stmt.pluck().database, undefined);
+    assert.equal(stmt.get(1), undefined);
+    assert.equal(sql.exec('DELETE FROM preroll_state WHERE id = -1'), sql);
+
+    const tx = sql.transaction(function inner() {
+      return this;
+    });
+    assert.equal(tx.database, undefined);
+    assert.equal(tx(), undefined);
+    assert.equal(tx.immediate(), undefined);
+  } finally {
+    db.close();
+  }
+});
+
 test('validateManifest accepts preroll permissions', () => {
   const result = validateManifest({
     id: 'preroll-scheduler',
@@ -342,6 +444,24 @@ test('validateManifest accepts preroll permissions', () => {
     ],
   });
   assert.equal(result.ok, true);
+});
+
+test('Preroll Scheduler only writes the cinema preroll preference', async () => {
+  const writes = [];
+  const plex = {
+    isConfigured: () => true,
+    setPreference: async (id, value) => {
+      writes.push([id, value]);
+    },
+  };
+  const restricted = restrictPreferenceWrites(plex);
+  assert.equal(restricted.isConfigured(), true);
+  await restricted.setPreference(CINEMA_PREROLL_PREF, '/prerolls/a.mp4');
+  await assert.rejects(restricted.setPreference('FriendlyName', 'x'), /may only set/);
+  assert.deepEqual(writes, [[CINEMA_PREROLL_PREF, '/prerolls/a.mp4']]);
+
+  const service = new PrerollService({ sql: {}, fs: {}, plex, log: {} });
+  await assert.rejects(service.plex.setPreference('ManualPortMappingPort', '1'), /may only set/);
 });
 
 test('plugin api denies prefs fs and sql without permissions', async () => {
@@ -397,6 +517,149 @@ test('plugin api fs.read enforces media roots', () => {
   assert.deepEqual(api.fs.listVideos(allowed), { entries: [], error: null });
   assert.throws(() => api.fs.listVideos(path.join(dir, 'other')), /outside/);
   db.close();
+});
+
+function trySymlink(target, link, type) {
+  try {
+    fs.symlinkSync(target, link, type);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function makeMediaFixture(prefix) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const root = path.join(dir, 'media');
+  const outside = path.join(dir, 'outside');
+  fs.mkdirSync(root);
+  fs.mkdirSync(outside);
+  const secret = path.join(outside, 'secret.mp4');
+  fs.writeFileSync(secret, 'secret');
+  return { dir, root, outside, secret };
+}
+
+function makeFsApi(dir, root) {
+  const db = openDatabase(path.join(dir, 't.sqlite'));
+  const log = createLogger(path.join(dir, 'logs'), db);
+  const api = createPluginApi({
+    pluginId: 'x',
+    permissions: ['fs.read', 'fs.write'],
+    plex: { isConfigured: () => false },
+    bus: new EventBus(),
+    db,
+    logger: log,
+    getConfiguredAccountId: () => null,
+    panels: new Map(),
+    scheduler: new Scheduler(log),
+    mediaRoots: [root],
+  });
+  return { api, db };
+}
+
+test('media roots deny a directory link that leads outside the root', async () => {
+  const { dir, root, outside, secret } = makeMediaFixture('pt-fs-dirlink-');
+  const escape = path.join(root, 'escape');
+  assert.ok(trySymlink(outside, escape, 'junction'), 'could not create a directory link');
+  const { api, db } = makeFsApi(dir, root);
+  try {
+    const viaLink = path.join(escape, 'secret.mp4');
+    assert.throws(() => api.fs.stat(viaLink), /outside/);
+    assert.throws(() => api.fs.createReadStream(viaLink), /outside/);
+    assert.equal(api.fs.exists(viaLink), false);
+    await assert.rejects(api.fs.writeFile(path.join(escape, 'new.mp4'), 'x'), /outside|symbolic/);
+    await assert.rejects(api.fs.unlink(viaLink), /outside/);
+    assert.throws(() => api.fs.listVideos(escape), /symbolic link/);
+    assert.equal(fs.existsSync(path.join(outside, 'new.mp4')), false);
+    assert.equal(fs.readFileSync(secret, 'utf8'), 'secret');
+
+    const ok = path.join(root, 'sub', 'ok.mp4');
+    await api.fs.mkdir(path.dirname(ok));
+    await api.fs.writeFile(ok, 'fine');
+    assert.equal(api.fs.stat(ok).size, 4);
+    assert.equal(fs.readdirSync(path.dirname(ok)).length, 1);
+  } finally {
+    db.close();
+  }
+});
+
+test('media roots deny a file symlink that points outside for read, write, and stat', async (t) => {
+  const { dir, root, secret } = makeMediaFixture('pt-fs-filelink-');
+  const link = path.join(root, 'link.mp4');
+  if (!trySymlink(secret, link, 'file')) {
+    t.skip('this platform cannot create file symlinks without extra privileges');
+    return;
+  }
+  const { api, db } = makeFsApi(dir, root);
+  try {
+    assert.throws(() => api.fs.stat(link), /symbolic link/);
+    assert.throws(() => api.fs.createReadStream(link), /symbolic link/);
+    await assert.rejects(api.fs.writeFile(link, 'overwritten'), /symbolic link/);
+    assert.equal(fs.readFileSync(secret, 'utf8'), 'secret');
+  } finally {
+    db.close();
+  }
+});
+
+test('writeFileReplacing replaces a planted symlink instead of writing through it', async (t) => {
+  const { root, secret } = makeMediaFixture('pt-fs-replace-');
+  const dest = path.join(root, 'trailer.mp4');
+  if (!trySymlink(secret, dest, 'file')) {
+    t.skip('this platform cannot create file symlinks without extra privileges');
+    return;
+  }
+  await writeFileReplacing(dest, 'new data');
+  assert.equal(fs.readFileSync(secret, 'utf8'), 'secret');
+  assert.equal(fs.lstatSync(dest).isSymbolicLink(), false);
+  assert.equal(fs.readFileSync(dest, 'utf8'), 'new data');
+});
+
+test('streamPluginFile refuses paths outside media roots and streams allowed files', async () => {
+  const { root, outside, secret } = makeMediaFixture('pt-stream-');
+  const preview = path.join(root, 'preview.mp4');
+  fs.writeFileSync(preview, 'abcdef');
+  const escape = path.join(root, 'escape');
+  assert.ok(trySymlink(outside, escape, 'junction'), 'could not create a directory link');
+
+  const app = express();
+  app.get('/file', (req, res) =>
+    streamPluginFile(req, res, { file: req.query.p, contentType: 'video/mp4', size: 999 }, {
+      mediaRoots: [root],
+    }),
+  );
+  const server = await new Promise((resolve) => {
+    const s = app.listen(0, '127.0.0.1', () => resolve(s));
+  });
+  const base = `http://127.0.0.1:${server.address().port}/file?p=`;
+  try {
+    const outsideRes = await fetch(base + encodeURIComponent(secret));
+    assert.equal(outsideRes.status, 403);
+    const linkRes = await fetch(base + encodeURIComponent(path.join(escape, 'secret.mp4')), {
+      headers: { Range: 'bytes=0-2' },
+    });
+    assert.equal(linkRes.status, 403);
+    const dirRes = await fetch(base + encodeURIComponent(root));
+    assert.equal(dirRes.status, 404);
+
+    const ok = await fetch(base + encodeURIComponent(preview));
+    assert.equal(ok.status, 200);
+    assert.equal(ok.headers.get('content-length'), '6');
+    assert.equal(await ok.text(), 'abcdef');
+    const ranged = await fetch(base + encodeURIComponent(preview), {
+      headers: { Range: 'bytes=1-2' },
+    });
+    assert.equal(ranged.status, 206);
+    assert.equal(await ranged.text(), 'bc');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('buildPlexPrerollValue omits paths that contain a comma', () => {
+  assert.equal(
+    buildPlexPrerollValue(['/prerolls/a.mp4', '/prerolls/b, the sequel.mp4', '/prerolls/c.mp4']),
+    '/prerolls/a.mp4,/prerolls/c.mp4',
+  );
 });
 
 test('scanBucketFolder reports missing path', () => {

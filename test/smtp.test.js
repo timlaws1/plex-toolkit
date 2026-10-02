@@ -1,6 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { collectMultiline } from '../src/mail/smtp.js';
+import { assertAddressLine, collectMultiline, sendMail } from '../src/mail/smtp.js';
+
+test('From and To with line breaks are rejected before connecting', async () => {
+  assert.doesNotThrow(() => assertAddressLine('a@example.com', 'From'));
+  assert.doesNotThrow(() => assertAddressLine('Plex Toolkit <a@example.com>', 'From'));
+  assert.throws(() => assertAddressLine('a@example.com\r\nRCPT TO:<b@evil.example>', 'To'), /line breaks/);
+  assert.throws(() => assertAddressLine('a@example.com\nBcc: b@evil.example', 'To'), /line breaks/);
+  assert.throws(() => assertAddressLine('a@example.com>\0', 'To'), /line breaks/);
+  assert.throws(() => assertAddressLine('a@ex ample.com', 'To'), /not valid/);
+
+  await assert.rejects(
+    sendMail({
+      host: '127.0.0.1',
+      port: 1,
+      from: 'a@example.com',
+      to: 'b@example.com\r\nBcc: c@evil.example',
+      subject: 's',
+      text: 't',
+    }),
+    /line breaks/,
+  );
+});
 
 function readerFrom(lines) {
   const queue = [...lines];

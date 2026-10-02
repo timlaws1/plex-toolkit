@@ -89,13 +89,4 @@ export function validateManifest(raw, { pluginRoot } = {}) {
   };
 }
 
-export function isSafeArchivePath(entryPath) {
-  if (!entryPath || typeof entryPath !== 'string') return false;
-  const normalized = entryPath.replace(/\\/g, '/');
-  if (normalized.startsWith('/') || /^[a-zA-Z]:/.test(normalized)) return false;
-  const parts = normalized.split('/');
-  if (parts.some((p) => p === '..')) return false;
-  return true;
-}
-
 export { KNOWN_PERMISSIONS };

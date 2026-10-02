@@ -8,7 +8,7 @@ import { migrateLegacyTmdb } from './tmdb/settings.js';
 import { createLogger } from './log.js';
 import { EventBus } from './events/bus.js';
 import { PlexClient } from './plex/client.js';
-import { ensureClientId } from './plex/auth.js';
+import { ensureClientId, ensureWebhookToken } from './plex/auth.js';
 import { PlexEventMonitor } from './plex/events.js';
 import { PluginManager } from './plugins/manager.js';
 import { InProcessRuntime, Scheduler } from './plugins/runtime.js';
@@ -36,6 +36,7 @@ async function main() {
     log.info('Copied a tool TMDb API key to the API keys page');
   }
   const clientId = ensureClientId(config.clientIdPath, config.plexClientId);
+  const webhookToken = ensureWebhookToken(config.webhookTokenPath, process.env.WEBHOOK_TOKEN);
   const bus = new EventBus();
   const panels = new Map();
   const scheduler = new Scheduler(log);
@@ -85,7 +86,12 @@ async function main() {
     secrets,
   });
 
-  const eventMonitor = new PlexEventMonitor({ plex, bus, logger: log });
+  const eventMonitor = new PlexEventMonitor({
+    plex,
+    bus,
+    logger: log,
+    getConfiguredAccountId,
+  });
 
   const app = createApp({
     db,
@@ -96,6 +102,8 @@ async function main() {
     panels,
     logger: log,
     publicUrl: config.publicUrl,
+    webhookToken,
+    mediaRoots: config.mediaRoots,
   });
 
   await pluginManager.syncBundled();
@@ -127,7 +135,12 @@ main().catch((err) => {
 });
 
 function warnMediaRoots(roots, logger) {
-  if (!roots?.length) return;
+  if (!roots?.length) {
+    logger.warn(
+      'MEDIA_ROOTS is not set: file tools can read and write any path this process can reach. Set MEDIA_ROOTS outside local development.',
+    );
+    return;
+  }
   for (const root of roots) {
     const resolved = path.resolve(root);
     if (!fs.existsSync(resolved)) {

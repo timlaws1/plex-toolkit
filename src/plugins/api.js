@@ -4,9 +4,10 @@ import { loadTmdbSettings, tmdbConfigured } from '../tmdb/settings.js';
 import { browserFetch as defaultBrowserFetch } from '../net/browser-fetch.js';
 import fs from 'node:fs';
 import { promises as fsp } from 'node:fs';
-import { assertPathAllowed } from './fs-scope.js';
+import { assertPathAllowed, writeFileReplacing } from './fs-scope.js';
 import { allowlistForPermissions, createScopedSql, hasSqlPermission } from './sql-scope.js';
 import { scanBucketFolder, readMp4DurationMsHost } from './fs-media.js';
+import { webhookAccountAllowed } from '../plex/sessions.js';
 
 const ALLOWED_EVENTS = new Set([
   'playback.started',
@@ -272,7 +273,7 @@ export function createPluginApi({
       async writeFile(absPath, data) {
         requirePerm('fs.write');
         const allowed = guardPath(absPath);
-        await fsp.writeFile(allowed, data);
+        await writeFileReplacing(allowed, data);
       },
       async mkdir(absPath) {
         requirePerm('fs.write');
@@ -314,7 +315,9 @@ export function createPluginApi({
         const wrapped = (payload) => {
           try {
             const configured = getConfiguredAccountId();
-            if (
+            if (payload?.source === 'webhook') {
+              if (!webhookAccountAllowed(payload.accountId, configured)) return;
+            } else if (
               payload?.accountId != null &&
               configured != null &&
               String(payload.accountId) !== String(configured) &&

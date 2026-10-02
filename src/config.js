@@ -49,6 +49,7 @@ export const config = {
   dbPath: path.join(dataDir, 'database', 'toolkit.sqlite'),
   secretKeyPath: path.join(dataDir, 'config', 'secret.key'),
   clientIdPath: path.join(dataDir, 'config', 'client.id'),
+  webhookTokenPath: path.join(dataDir, 'config', 'webhook.token'),
   adminPassword: process.env.ADMIN_PASSWORD || '',
   plexClientId: process.env.PLEX_CLIENT_ID || '',
   publicUrl: process.env.PUBLIC_URL || '',

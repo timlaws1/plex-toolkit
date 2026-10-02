@@ -5,7 +5,7 @@ import {
   planUndo,
   formatEpisodeCode,
   isShowAllowed,
-} from '../../plex-toolkit-netflix-rewatch/rewind.js';
+} from '../tools/netflix-rewatch/rewind.js';
 
 function ep(season, episode, watched, ratingKey) {
   return {

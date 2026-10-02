@@ -74,10 +74,34 @@ export function splitImageRef(ref) {
   return { fromImage: raw, tag: 'latest' };
 }
 
+/** Container label holding the tag an update follows when the container runs a pinned digest. */
+export const UPDATE_IMAGE_LABEL = 'io.plex-toolkit.update-image';
+
+function isPinnedRef(ref) {
+  return ref.startsWith('sha256:') || ref.includes('@sha256:');
+}
+
 export function imageRefFromInspect(inspect) {
   const configured = String(inspect?.Config?.Image || '').trim();
-  if (configured && !configured.startsWith('sha256:')) return configured;
+  if (configured && !isPinnedRef(configured)) return configured;
+  const followed = String(inspect?.Config?.Labels?.[UPDATE_IMAGE_LABEL] || '').trim();
+  if (followed && !isPinnedRef(followed)) return followed;
   return DEFAULT_IMAGE;
+}
+
+/**
+ * The immutable reference for a pulled image: `repo@sha256:…` from RepoDigests,
+ * or the local image id when the registry digest is not listed.
+ * @param {{ Id?: string, RepoDigests?: string[] } | null} image
+ * @param {string} fromImage
+ */
+export function pinnedImageRef(image, fromImage) {
+  const digests = Array.isArray(image?.RepoDigests) ? image.RepoDigests : [];
+  const prefix = `${fromImage}@sha256:`;
+  const match = digests.find((d) => String(d).startsWith(prefix));
+  if (match) return match;
+  const id = String(image?.Id || '');
+  return id.startsWith('sha256:') ? id : null;
 }
 
 export function formatCommitDate(iso) {

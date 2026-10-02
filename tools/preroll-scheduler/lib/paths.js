@@ -28,10 +28,13 @@ export function toPlexPath(localPath, prefixes = {}) {
 
 /**
  * Build the CinemaTrailersPrerollID value: comma-separated sequential paths.
+ * Plex splits this preference on commas, so a path containing one is dropped.
  * @param {string[]} paths
  */
 export function buildPlexPrerollValue(paths) {
-  return (paths || []).filter(Boolean).join(',');
+  return (paths || [])
+    .filter((p) => p && !String(p).includes(','))
+    .join(',');
 }
 
 /**

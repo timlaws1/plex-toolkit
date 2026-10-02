@@ -12,6 +12,33 @@ const WATCHLIST_URLS = [
 
 const WATCHLIST_PAGE_SIZE = 50;
 
+const DISCOVER_HOSTS = new Set(DISCOVER_BASES.map((base) => new URL(base).host));
+const DISCOVER_RATING_KEY = /^[A-Za-z0-9]+$/;
+const DISCOVER_METADATA_PATH = /^\/library\/metadata\/[A-Za-z0-9]+(?:\/[A-Za-z]+)?$/;
+
+/**
+ * Encode one dynamic path segment so a stored id cannot add segments or change the host.
+ * @param {unknown} value
+ */
+export function pathSegment(value) {
+  const s = String(value ?? '').trim();
+  if (!s || s === '.' || s === '..') {
+    throw new Error(`Invalid Plex id: ${JSON.stringify(s)}`);
+  }
+  return encodeURIComponent(s);
+}
+
+/**
+ * @param {unknown} ratingKeyOrPath a Discover rating key or a /library/metadata/<key> path
+ * @returns {string}
+ */
+export function discoverMetadataPath(ratingKeyOrPath) {
+  const raw = String(ratingKeyOrPath ?? '').trim();
+  if (DISCOVER_RATING_KEY.test(raw)) return `/library/metadata/${raw}`;
+  if (DISCOVER_METADATA_PATH.test(raw)) return raw;
+  throw new Error('Discover metadata needs a rating key or a /library/metadata/<key> path');
+}
+
 function asList(value) {
   if (value == null) return [];
   return Array.isArray(value) ? value : [value];
@@ -179,7 +206,11 @@ export class PlexClient {
     if (!this.url) throw new Error('Plex server URL is not configured');
     if (!this.token) throw new Error('Plex token is not configured');
 
-    const url = new URL(pathname, this.url.endsWith('/') ? this.url : `${this.url}/`);
+    const base = this.url.endsWith('/') ? this.url : `${this.url}/`;
+    const url = new URL(pathname, base);
+    if (url.origin !== new URL(base).origin) {
+      throw new Error(`Plex request path leaves the server: ${pathname}`);
+    }
     for (const [k, v] of Object.entries(query)) {
       if (v != null) url.searchParams.set(k, String(v));
     }
@@ -215,6 +246,9 @@ export class PlexClient {
     if (!this.token) throw new Error('Plex token is not configured');
 
     const url = new URL(pathname, base.endsWith('/') ? base : `${base}/`);
+    if (url.protocol !== 'https:' || !DISCOVER_HOSTS.has(url.host)) {
+      throw new Error(`Plex Discover request must stay on a Plex Discover host: ${pathname}`);
+    }
     for (const [k, v] of Object.entries(query)) {
       if (v != null) url.searchParams.set(k, String(v));
     }
@@ -284,7 +318,7 @@ export class PlexClient {
   async refreshLibrary(sectionId) {
     const id = String(sectionId || '').trim();
     if (!id) throw new Error('Library section id is required');
-    await this.request('GET', `/library/sections/${encodeURIComponent(id)}/refresh`);
+    await this.request('GET', `/library/sections/${pathSegment(id)}/refresh`);
     return { ok: true, sectionId: id };
   }
 
@@ -314,7 +348,7 @@ export class PlexClient {
 
     const data = await this.request(
       'GET',
-      `/library/sections/${libraryId}/all`,
+      `/library/sections/${pathSegment(libraryId)}/all`,
       { query },
     );
     const items = data?.MediaContainer?.Metadata || [];
@@ -332,7 +366,7 @@ export class PlexClient {
   async getShows(libraryId) {
     const data = await this.request(
       'GET',
-      `/library/sections/${libraryId}/all`,
+      `/library/sections/${pathSegment(libraryId)}/all`,
       { query: { type: 2, includeGuids: '1' } },
     );
     const items = data?.MediaContainer?.Metadata || [];
@@ -357,7 +391,7 @@ export class PlexClient {
   async getEpisodes(showRatingKey) {
     const data = await this.request(
       'GET',
-      `/library/metadata/${showRatingKey}/allLeaves`,
+      `/library/metadata/${pathSegment(showRatingKey)}/allLeaves`,
     );
     const items = data?.MediaContainer?.Metadata || [];
     return items
@@ -385,7 +419,7 @@ export class PlexClient {
   }
 
   async getMetadata(ratingKey) {
-    const data = await this.request('GET', `/library/metadata/${ratingKey}`, {
+    const data = await this.request('GET', `/library/metadata/${pathSegment(ratingKey)}`, {
       query: { includeGuids: '1' },
     });
     const item = data?.MediaContainer?.Metadata?.[0];
@@ -554,10 +588,7 @@ export class PlexClient {
   async getDiscoverMetadata(ratingKeyOrPath) {
     if (!this.token) throw new Error('Plex token is not configured');
 
-    let path = String(ratingKeyOrPath || '');
-    if (!path.startsWith('/')) {
-      path = `/library/metadata/${path}`;
-    }
+    const path = discoverMetadataPath(ratingKeyOrPath);
 
     let lastError = null;
     for (const base of DISCOVER_BASES) {
@@ -631,7 +662,7 @@ export class PlexClient {
     for (const dvr of dvrs) {
       if (!dvr.key) continue;
       try {
-        const data = await this.request('GET', `/livetv/dvrs/${dvr.key}`);
+        const data = await this.request('GET', `/livetv/dvrs/${pathSegment(dvr.key)}`);
         const container = data?.MediaContainer || data || {};
         for (const ch of asList(container.Channel)) {
           const title =
@@ -894,7 +925,7 @@ export class PlexClient {
   async listCollections(sectionId) {
     const id = String(sectionId || '').trim();
     if (!id) throw new Error('Library section id is required');
-    const data = await this.request('GET', `/library/sections/${id}/collections`);
+    const data = await this.request('GET', `/library/sections/${pathSegment(id)}/collections`);
     return asList(data?.MediaContainer?.Metadata).map(mapCollection);
   }
 
@@ -923,7 +954,7 @@ export class PlexClient {
     const keys = (ratingKeys || []).map(String).filter(Boolean);
     if (!keys.length) return { ok: true };
     const machineId = await this.machineId();
-    await this.request('PUT', `/library/collections/${collectionKey}/items`, {
+    await this.request('PUT', `/library/collections/${pathSegment(collectionKey)}/items`, {
       query: { uri: this.libraryItemUri(machineId, keys) },
     });
     return { ok: true };
@@ -932,7 +963,7 @@ export class PlexClient {
   async removeCollectionItem(collectionKey, ratingKey) {
     await this.request(
       'DELETE',
-      `/library/collections/${collectionKey}/items/${ratingKey}`,
+      `/library/collections/${pathSegment(collectionKey)}/items/${pathSegment(ratingKey)}`,
     );
     return { ok: true };
   }
@@ -940,13 +971,13 @@ export class PlexClient {
   async getCollectionItems(collectionKey) {
     const data = await this.request(
       'GET',
-      `/library/metadata/${collectionKey}/children`,
+      `/library/metadata/${pathSegment(collectionKey)}/children`,
     );
     return asList(data?.MediaContainer?.Metadata).map((item) => mapLibraryItem(item, null));
   }
 
   async setItemSummary(ratingKey, summary) {
-    await this.request('PUT', `/library/metadata/${ratingKey}`, {
+    await this.request('PUT', `/library/metadata/${pathSegment(ratingKey)}`, {
       query: { 'summary.value': summary == null ? '' : String(summary) },
     });
     return { ok: true };
@@ -976,7 +1007,7 @@ export class PlexClient {
     const keys = (ratingKeys || []).map(String).filter(Boolean);
     if (!keys.length) return { ok: true };
     const machineId = await this.machineId();
-    await this.request('PUT', `/playlists/${playlistKey}/items`, {
+    await this.request('PUT', `/playlists/${pathSegment(playlistKey)}/items`, {
       query: { uri: this.libraryItemUri(machineId, keys) },
     });
     return { ok: true };
@@ -985,13 +1016,13 @@ export class PlexClient {
   async removePlaylistItem(playlistKey, playlistItemId) {
     await this.request(
       'DELETE',
-      `/playlists/${playlistKey}/items/${playlistItemId}`,
+      `/playlists/${pathSegment(playlistKey)}/items/${pathSegment(playlistItemId)}`,
     );
     return { ok: true };
   }
 
   async getPlaylistItems(playlistKey) {
-    const data = await this.request('GET', `/playlists/${playlistKey}/items`);
+    const data = await this.request('GET', `/playlists/${pathSegment(playlistKey)}/items`);
     return asList(data?.MediaContainer?.Metadata).map((item) => ({
       ...mapLibraryItem(item, null),
       playlistItemID:

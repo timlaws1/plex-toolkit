@@ -8,6 +8,7 @@ import { getSetting, setSetting } from '../db/index.js';
 import { loadMailSettings, mailConfigured, saveMailSettings } from '../mail/settings.js';
 import { sendMail } from '../mail/smtp.js';
 import { loadTmdbSettings, saveTmdbSettings, tmdbConfigured } from '../tmdb/settings.js';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,11 +21,22 @@ import {
   pickReachableUri,
   fetchPlexAccount,
 } from '../plex/auth.js';
+import { mountPlexWebhook } from './webhook.js';
+import { assertPathAllowed } from '../plugins/fs-scope.js';
 import { startUpdate } from '../update/apply.js';
 import { getUpdateStatus, readUpdateResult, refreshUpdateStatus } from '../update/status.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+const LOGIN_MAX_FAILURES = 5;
+const LOGIN_LOCK_MS = 15 * 60 * 1000;
+
+export function adminPasswordMatches(given, expected) {
+  if (!expected) return false;
+  const a = crypto.createHash('sha256').update(String(given ?? ''), 'utf8').digest();
+  const b = crypto.createHash('sha256').update(String(expected), 'utf8').digest();
+  return crypto.timingSafeEqual(a, b);
+}
 
 export function createApp(ctx) {
   const {
@@ -36,9 +48,19 @@ export function createApp(ctx) {
     panels,
     logger,
     publicUrl,
+    webhookToken,
+    mediaRoots = null,
+    loginFailureDelayMs = 500,
   } = ctx;
 
   const app = express();
+  app.disable('x-powered-by');
+  app.use((req, res, next) => {
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    next();
+  });
+  mountPlexWebhook(app, { token: webhookToken, eventMonitor, logger });
   app.use(express.urlencoded({ extended: true, limit: '15mb' }));
   app.use(express.json({ limit: '2mb' }));
   app.use(cookieParser());
@@ -60,17 +82,24 @@ export function createApp(ctx) {
     }
   }
 
-  function setSession(res, data) {
+  const publicUrlIsHttps = /^https:/i.test(String(publicUrl || '').trim());
+
+  function sessionCookieOptions(req) {
+    return {
+      httpOnly: true,
+      sameSite: 'lax',
+      maxAge: SESSION_TTL_MS,
+      secure: publicUrlIsHttps || Boolean(req.secure),
+    };
+  }
+
+  function setSession(req, res, data) {
     const id = secrets.randomToken(24);
     const expires = Date.now() + SESSION_TTL_MS;
     db.prepare(
       'INSERT INTO sessions (id, data, expires_at) VALUES (?, ?, ?)',
     ).run(id, JSON.stringify(data), expires);
-    res.cookie('pt_session', id, {
-      httpOnly: true,
-      sameSite: 'lax',
-      maxAge: SESSION_TTL_MS,
-    });
+    res.cookie('pt_session', id, sessionCookieOptions(req));
     return id;
   }
 
@@ -79,18 +108,14 @@ export function createApp(ctx) {
     const current = getSession(req) || {};
     const next = { ...current, ...patch };
     if (!sid) {
-      setSession(res, next);
+      setSession(req, res, next);
       return next;
     }
     const expires = Date.now() + SESSION_TTL_MS;
     db.prepare(
       `UPDATE sessions SET data = ?, expires_at = ? WHERE id = ?`,
     ).run(JSON.stringify(next), expires, sid);
-    res.cookie('pt_session', sid, {
-      httpOnly: true,
-      sameSite: 'lax',
-      maxAge: SESSION_TTL_MS,
-    });
+    res.cookie('pt_session', sid, sessionCookieOptions(req));
     return next;
   }
 
@@ -174,22 +199,6 @@ export function createApp(ctx) {
     return getPlexServerRow()?.plex_account_id || null;
   }
 
-  // --- Webhook (no auth; Plex servers call this) ---
-  app.post('/webhooks/plex', (req, res) => {
-    try {
-      let payload = req.body;
-      // Multipart form from Plex sometimes sends payload as JSON string field
-      if (payload?.payload && typeof payload.payload === 'string') {
-        payload = JSON.parse(payload.payload);
-      }
-      eventMonitor.handleWebhook(payload);
-      res.status(204).end();
-    } catch (err) {
-      logger.warn(`Webhook error: ${err.message}`);
-      res.status(400).json({ error: err.message });
-    }
-  });
-
   app.get('/login', (req, res) => {
     if (getSession(req)?.authenticated) return res.redirect('/');
     req.user = null;
@@ -209,14 +218,58 @@ export function createApp(ctx) {
     });
   });
 
-  app.post('/login', (req, res) => {
-    const password = req.body.password || '';
-    const expected = process.env.ADMIN_PASSWORD || '';
-    if (!expected || password !== expected) {
+  function loginLockedUntil(client) {
+    const row = db
+      .prepare('SELECT locked_until FROM login_attempts WHERE client = ?')
+      .get(client);
+    return row?.locked_until && row.locked_until > Date.now() ? row.locked_until : null;
+  }
+
+  function recordLoginFailure(client) {
+    const now = Date.now();
+    db.prepare(
+      `DELETE FROM login_attempts
+       WHERE (locked_until IS NOT NULL AND locked_until <= ?)
+          OR (locked_until IS NULL AND first_failed_at < ?)`,
+    ).run(now, now - LOGIN_LOCK_MS);
+    const row = db.prepare('SELECT * FROM login_attempts WHERE client = ?').get(client);
+    const stale =
+      !row ||
+      (row.locked_until && row.locked_until <= now) ||
+      now - row.first_failed_at > LOGIN_LOCK_MS;
+    const failures = stale ? 1 : row.failures + 1;
+    const firstFailedAt = stale ? now : row.first_failed_at;
+    const lockedUntil = failures >= LOGIN_MAX_FAILURES ? now + LOGIN_LOCK_MS : null;
+    db.prepare(
+      `INSERT INTO login_attempts (client, failures, first_failed_at, locked_until)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(client) DO UPDATE SET
+         failures = excluded.failures,
+         first_failed_at = excluded.first_failed_at,
+         locked_until = excluded.locked_until`,
+    ).run(client, failures, firstFailedAt, lockedUntil);
+    return { failures, lockedUntil };
+  }
+
+  app.post('/login', async (req, res) => {
+    const client = req.ip || req.socket?.remoteAddress || 'unknown';
+    if (loginLockedUntil(client)) {
+      logger.warn(`Login refused for ${client}: too many failed attempts`);
+      flash(res, 'error', 'Too many failed sign-in attempts. Try again in 15 minutes.');
+      return res.redirect('/login');
+    }
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    if (!adminPasswordMatches(password, process.env.ADMIN_PASSWORD || '')) {
+      const { failures, lockedUntil } = recordLoginFailure(client);
+      logger.warn(
+        `Failed login from ${client} (${failures} in a row)${lockedUntil ? '; locked for 15 minutes' : ''}`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, loginFailureDelayMs));
       flash(res, 'error', 'Invalid password');
       return res.redirect('/login');
     }
-    setSession(res, { authenticated: true, at: Date.now() });
+    db.prepare('DELETE FROM login_attempts WHERE client = ?').run(client);
+    setSession(req, res, { authenticated: true, at: Date.now() });
     res.redirect('/');
   });
 
@@ -433,7 +486,7 @@ docker compose up -d</pre>
     } else {
       const connected = Boolean(server.last_ok_at && server.url);
       const baseUrl = (publicUrl || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
-      const webhookUrl = `${baseUrl}/webhooks/plex`;
+      const webhookUrl = `${baseUrl}/webhooks/plex/${encodeURIComponent(webhookToken || '')}`;
       const localOnly = /\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(baseUrl);
       body = `
         ${pageHeader('Plex', connected ? 'Connected and ready for tools.' : 'Signed in — finish connecting your server.')}
@@ -463,7 +516,7 @@ docker compose up -d</pre>
         </div>
         ${connected ? `<div class="panel">
           <h2 class="panel-title">Webhook</h2>
-          <p class="panel-hint">Optional. In Plex, go to Settings → Webhooks, add this URL, and save. Tools already get playback events without it; webhooks add scrobble events (needs Plex Pass).</p>
+          <p class="panel-hint">Optional. In Plex, go to Settings → Webhooks, add this URL, and save. Tools already get playback events without it; webhooks add scrobble events (needs Plex Pass). The address contains a secret token; keep it private. If Plex already has the older <span class="mono">/webhooks/plex</span> address without a token, replace it with this one.</p>
           <div class="copy-row">
             <input id="webhook-url" type="text" class="mono" readonly value="${escapeHtml(webhookUrl)}" onclick="this.select()" />
             <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('webhook-url').value).then(() => { this.textContent = 'Copied'; setTimeout(() => { this.textContent = 'Copy'; }, 1500); })">Copy</button>
@@ -568,7 +621,7 @@ docker compose up -d</pre>
       const servers = await listServers(plex.clientId, token);
       updateSession(req, res, {
         plex_pin: null,
-        pendingPlexToken: token,
+        pendingPlexToken: secrets.encrypt(token),
         pendingPlexAccount: account,
         pendingPlexServers: servers,
       });
@@ -613,7 +666,12 @@ docker compose up -d</pre>
   });
 
   app.post('/plex/select-server', requireAuth, async (req, res) => {
-    const token = req.user?.pendingPlexToken;
+    let token = null;
+    try {
+      token = secrets.decrypt(req.user?.pendingPlexToken);
+    } catch {
+      token = null;
+    }
     const servers = req.user?.pendingPlexServers || [];
     const account = req.user?.pendingPlexAccount || null;
     const serverId = String(req.body.server_id || '');
@@ -1187,7 +1245,10 @@ docker compose up -d</pre>
     );
     if (!fs.existsSync(settingsHtmlPath)) return res.status(404).end();
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self'",
+    );
     res.send(fs.readFileSync(settingsHtmlPath, 'utf8'));
   });
 
@@ -1304,7 +1365,7 @@ docker compose up -d</pre>
       });
 
       if (result?.file) {
-        return streamPluginFile(req, res, result);
+        return streamPluginFile(req, res, result, { mediaRoots, logger });
       }
 
       if (result?.status === 404) {
@@ -1349,14 +1410,25 @@ docker compose up -d</pre>
 }
 
 /**
- * Stream a local file returned by a plugin handleRequest ({ file, contentType, size }).
+ * Stream a local file returned by a plugin handleRequest ({ file, contentType }).
+ * The path must pass the same MEDIA_ROOTS check as ctx.fs.
  */
-function streamPluginFile(req, res, result) {
-  const filePath = result.file;
-  const total =
-    result.size != null
-      ? Number(result.size)
-      : fs.statSync(filePath).size;
+export function streamPluginFile(req, res, result, { mediaRoots = null, logger = null } = {}) {
+  let filePath;
+  let st;
+  try {
+    filePath = assertPathAllowed(String(result.file || ''), mediaRoots);
+    st = fs.statSync(filePath);
+  } catch (err) {
+    logger?.warn(`Refused plugin file: ${err.message}`);
+    res.status(403).send('Forbidden');
+    return;
+  }
+  if (!st.isFile()) {
+    res.status(404).send('Not found');
+    return;
+  }
+  const total = st.size;
   const contentType = result.contentType || 'application/octet-stream';
   const range = req.headers.range;
   res.setHeader('Content-Type', contentType);

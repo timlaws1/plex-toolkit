@@ -25,6 +25,8 @@ export async function sendMail(opts) {
   if (!host) throw new Error('SMTP host is required');
   if (!from) throw new Error('From address is required');
   if (!to) throw new Error('To address is required');
+  assertAddressLine(from, 'From');
+  assertAddressLine(to, 'To');
 
   const secure = Boolean(opts.secure) || port === 465;
   const socket = await connect(host, port, secure);
@@ -87,6 +89,22 @@ async function finishSmtp(socket, opts, from, to, subject, existingReader, exist
   } catch (err) {
     socket.destroy();
     throw err;
+  }
+}
+
+/**
+ * From/To go into SMTP commands and message headers verbatim, so a line break
+ * would let the value add commands, recipients, or headers.
+ * @param {string} value
+ * @param {string} label
+ */
+export function assertAddressLine(value, label) {
+  if (/[\r\n\0]/.test(String(value))) {
+    throw new Error(`${label} address must not contain line breaks`);
+  }
+  const address = extractAddress(value);
+  if (!address || /[<>\s]/.test(address)) {
+    throw new Error(`${label} address is not valid`);
   }
 }
 

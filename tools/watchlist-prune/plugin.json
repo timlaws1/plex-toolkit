@@ -1,0 +1,42 @@
+{
+  "id": "watchlist-prune",
+  "name": "Watchlist Prune",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "author": "Thunderhat",
+  "description": "Take films off your Plex watchlist once you have watched them in Plex, and optionally after they have sat there too long.",
+  "entry": "plugin.js",
+  "permissions": [
+    "plex.read",
+    "plex.discover",
+    "events.subscribe",
+    "storage",
+    "scheduler",
+    "changes"
+  ],
+  "settingsSchema": [
+    {
+      "key": "enabled",
+      "type": "boolean",
+      "label": "Enabled",
+      "default": true,
+      "help": "Master switch for removing films when you watch them and for the daily sweep."
+    },
+    {
+      "key": "libraries",
+      "type": "plexLibraries",
+      "label": "Movie libraries",
+      "default": [],
+      "help": "No libraries are selected by default. A watched film in one of these libraries is removed from your watchlist."
+    },
+    {
+      "key": "maxAgeDays",
+      "type": "number",
+      "label": "Remove films older than (days)",
+      "default": 0,
+      "min": 0,
+      "max": 3650,
+      "help": "0 turns this off. Plex does not say when a film was added to the watchlist, so the clock starts the first time this tool sees it."
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "id": "letterboxd-lists",
+  "name": "Letterboxd Lists",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "author": "Thunderhat",
+  "description": "Turn public Letterboxd lists into Plex collections of the films you own, with a report of the ones you are missing.",
+  "entry": "plugin.js",
+  "permissions": [
+    "plex.read",
+    "plex.collections",
+    "plex.discover",
+    "net.fetch",
+    "storage",
+    "scheduler",
+    "mail.send"
+  ],
+  "settingsSchema": [
+    {
+      "key": "lists",
+      "type": "stringList",
+      "label": "Letterboxd list URLs",
+      "default": [],
+      "section": "Lists",
+      "help": "One public list per line, for example https://letterboxd.com/username/list/list-name/"
+    },
+    {
+      "key": "libraries",
+      "type": "plexLibraries",
+      "label": "Movie libraries",
+      "default": [],
+      "section": "Lists",
+      "help": "No libraries are selected by default. Each library with at least one film from a list gets its own collection named after the list."
+    },
+    {
+      "key": "intervalHours",
+      "type": "number",
+      "label": "Sync interval (hours)",
+      "default": 24,
+      "min": 1,
+      "max": 168,
+      "section": "Lists"
+    },
+    {
+      "key": "addMissingToWatchlist",
+      "type": "boolean",
+      "label": "Add missing films to my Plex watchlist",
+      "default": false,
+      "section": "Missing films",
+      "help": "Films on a list that are in none of your libraries are added to your Plex watchlist once. Removing one from the watchlist keeps it off."
+    },
+    {
+      "key": "emailMissing",
+      "type": "boolean",
+      "label": "Email when missing films change",
+      "default": false,
+      "section": "Missing films",
+      "help": "Sends a summary when the set of missing films on any list changes. Uses the mail server on the Mail page."
+    },
+    {
+      "key": "emailTo",
+      "type": "string",
+      "label": "Send emails to",
+      "default": "",
+      "section": "Missing films",
+      "help": "Leave blank to use the default recipient on the Mail page."
+    }
+  ]
+}

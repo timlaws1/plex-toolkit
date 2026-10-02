@@ -325,6 +325,26 @@ ALTER TABLE preroll_steps ADD COLUMN group_position INTEGER NOT NULL DEFAULT 0;
 UPDATE preroll_steps SET group_position = position;
 `,
   },
+  {
+    id: 9,
+    sql: `
+CREATE TABLE IF NOT EXISTS login_attempts (
+  client TEXT PRIMARY KEY,
+  failures INTEGER NOT NULL DEFAULT 0,
+  first_failed_at INTEGER NOT NULL,
+  locked_until INTEGER
+);
+`,
+  },
+  {
+    id: 10,
+    // Sessions written before pendingPlexToken was encrypted still hold the raw token.
+    sql: `
+UPDATE sessions
+SET data = json_remove(data, '$.pendingPlexToken', '$.pendingPlexServers', '$.pendingPlexAccount')
+WHERE CASE WHEN json_valid(data) THEN json_extract(data, '$.pendingPlexToken') IS NOT NULL ELSE 0 END;
+`,
+  },
 ];
 
 export function openDatabase(dbPath) {

@@ -14,6 +14,7 @@ services:
       MEDIA_ROOTS: ${MEDIA_ROOTS:-/prerolls}
       PLEX_CLIENT_ID: ${PLEX_CLIENT_ID:-}
       SECRET_KEY: ${SECRET_KEY:-}
+      WEBHOOK_TOKEN: ${WEBHOOK_TOKEN:-}
     volumes:
       - ./data:/data
       # Preroll videos: host folder PREROLL_DIR appears as /prerolls inside the container

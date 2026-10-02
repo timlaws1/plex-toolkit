@@ -6,6 +6,21 @@ const TRAILER_SUFFIX =
 const VIDEO_MP4_RE =
   /https:\/\/video\.traileraddict\.com\/enc\/[^\s"'<>]+\.mp4/i;
 
+const PAGE_HOSTS = new Set(['traileraddict.com', 'www.traileraddict.com']);
+
+/**
+ * RSS item links are fetched, so only follow ones on the TrailerAddict site itself.
+ * @param {string} pageUrl
+ */
+export function isTrailerAddictPageUrl(pageUrl) {
+  try {
+    const url = new URL(String(pageUrl || ''));
+    return url.protocol === 'https:' && PAGE_HOSTS.has(url.hostname.toLowerCase()) && !url.port;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Strip TrailerAddict-style trailer suffixes from an RSS title.
  * @param {string} rawTitle
@@ -73,6 +88,9 @@ export function createTrailerAddictClient({ fetchFn }) {
     },
 
     async fetchVideoUrl(pageUrl) {
+      if (!isTrailerAddictPageUrl(pageUrl)) {
+        throw new Error(`Not a TrailerAddict page: ${pageUrl}`);
+      }
       const res = await fetchFn(pageUrl, {
         headers: { Accept: 'text/html' },
       });

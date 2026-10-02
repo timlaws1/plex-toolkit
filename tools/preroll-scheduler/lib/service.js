@@ -22,6 +22,22 @@ import {
 export const CINEMA_PREROLL_PREF = 'CinemaTrailersPrerollID';
 
 /**
+ * plex.prefs can write any server preference; this tool only ever needs the preroll one.
+ * @param {object} plex
+ */
+export function restrictPreferenceWrites(plex) {
+  if (!plex) return plex;
+  const restricted = Object.create(plex);
+  restricted.setPreference = async (id, value) => {
+    if (id !== CINEMA_PREROLL_PREF) {
+      throw new Error(`Preroll Scheduler may only set ${CINEMA_PREROLL_PREF}, not ${id}`);
+    }
+    return plex.setPreference(id, value);
+  };
+  return restricted;
+}
+
+/**
  * Preroll orchestration via plugin ctx (sql.preroll, fs.read, plex.prefs).
  */
 export class PrerollService {
@@ -31,7 +47,7 @@ export class PrerollService {
   constructor({ sql, fs, plex, log, getSettings, isTrailerFetcherActive }) {
     this.sql = sql;
     this.fs = fs;
-    this.plex = plex;
+    this.plex = restrictPreferenceWrites(plex);
     this.logger = log;
     this.getSettings = getSettings || (() => ({}));
     this.isTrailerFetcherActive = isTrailerFetcherActive || (() => false);
@@ -533,6 +549,16 @@ export class PrerollService {
             previewable: isBrowserPreviewable(item.filename),
           });
         }
+      }
+
+      const withComma = selected.filter((s) => String(s.plexPath || '').includes(','));
+      if (withComma.length) {
+        const warning = `Skipped ${withComma
+          .map((s) => s.filename)
+          .join(', ')}: Plex splits the preroll list on commas, so a file path cannot contain one`;
+        stepWarnings.push(warning);
+        this.logger.warn(`Preroll: ${warning}`);
+        for (const s of withComma) selected.splice(selected.indexOf(s), 1);
       }
 
       if (selected.length === 0) {

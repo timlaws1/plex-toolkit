@@ -198,6 +198,19 @@ test('recommendations sql cannot read preroll or host tables', () => {
   sql.prepare('SELECT COUNT(*) AS n FROM rec_schedules').get();
   assert.throws(() => sql.prepare('SELECT * FROM preroll_state'), /disallowed/);
   assert.throws(() => sql.prepare('SELECT * FROM plex_servers'), /disallowed/);
+  assert.throws(
+    () => sql.prepare('SELECT token_encrypted FROM rec_schedules, plex_servers'),
+    /disallowed table: plex_servers/,
+  );
+  assert.throws(
+    () => sql.exec("SELECT 1 FROM rec_schedules; ATTACH DATABASE ':memory:' AS x"),
+    /single statement|not allowed/,
+  );
+  assert.throws(() => sql.exec('PRAGMA table_info(plex_servers)'), /not allowed/);
+  assert.throws(
+    () => sql.prepare('SELECT * FROM rec_runs JOIN preroll_state ON 1 = 1'),
+    /disallowed table: preroll_state/,
+  );
   const store = createStore(sql);
   store.saveFilms([{
     uri: 'https://boxd.it/abc',

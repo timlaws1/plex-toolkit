@@ -1,61 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { pipeline } from 'node:stream/promises';
-import { createGunzip } from 'node:zlib';
-import { Readable } from 'node:stream';
-import { validateManifest, isSafeArchivePath } from './manifest.js';
-
-/**
- * Minimal tar extractor for GitHub archive downloads (ustar).
- * Only extracts regular files; rejects path traversal.
- */
-async function extractTarGz(buffer, destDir) {
-  const { PassThrough } = await import('node:stream');
-  const gunzip = createGunzip();
-  const input = Readable.from(buffer);
-  const out = new PassThrough();
-  const chunks = [];
-  out.on('data', (c) => chunks.push(c));
-  await pipeline(input, gunzip, out);
-  const data = Buffer.concat(chunks);
-
-  let offset = 0;
-  /** @type {string|null} */
-  let stripPrefix = null;
-
-  while (offset + 512 <= data.length) {
-    const header = data.subarray(offset, offset + 512);
-    offset += 512;
-    if (header.every((b) => b === 0)) break;
-
-    const name = header.toString('utf8', 0, 100).replace(/\0.*$/, '');
-    const sizeOctal = header.toString('utf8', 124, 136).replace(/\0.*$/, '').trim();
-    const typeFlag = String.fromCharCode(header[156]);
-    const size = parseInt(sizeOctal, 8) || 0;
-    const content = data.subarray(offset, offset + size);
-    offset += size;
-    if (size % 512 !== 0) offset += 512 - (size % 512);
-
-    if (!name) continue;
-    if (stripPrefix == null) {
-      const first = name.split('/')[0];
-      stripPrefix = first ? `${first}/` : '';
-    }
-    let rel = name;
-    if (stripPrefix && rel.startsWith(stripPrefix)) {
-      rel = rel.slice(stripPrefix.length);
-    }
-    if (!rel || rel.endsWith('/')) continue;
-    if (!isSafeArchivePath(rel)) {
-      throw new Error(`Unsafe archive path: ${name}`);
-    }
-    if (typeFlag !== '0' && typeFlag !== '\0') continue;
-
-    const target = path.join(destDir, rel);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, content);
-  }
-}
+import { validateManifest } from './manifest.js';
 
 function rmrf(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
@@ -78,7 +23,6 @@ export class PluginManager {
     db,
     runtime,
     logger,
-    pluginLocalRoots = [],
     secrets = null,
   }) {
     this.pluginsDir = pluginsDir;
@@ -86,7 +30,6 @@ export class PluginManager {
     this.db = db;
     this.runtime = runtime;
     this.logger = logger;
-    this.pluginLocalRoots = pluginLocalRoots.map((p) => path.resolve(p));
     this.secrets = secrets;
   }
 
@@ -306,100 +249,6 @@ export class PluginManager {
     return result.manifest;
   }
 
-  isAllowedLocalPath(candidate) {
-    const resolved = path.resolve(candidate);
-    return this.pluginLocalRoots.some((root) => {
-      const r = path.resolve(root);
-      return resolved === r || resolved.startsWith(r + path.sep);
-    });
-  }
-
-  async installFromLocal(localPath, { enable = true } = {}) {
-    const resolved = path.resolve(localPath);
-    if (!this.isAllowedLocalPath(resolved)) {
-      throw new Error(
-        'Local path is not under PLUGIN_LOCAL_ROOTS. Refusing install.',
-      );
-    }
-    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
-      throw new Error('Local plugin path must be a directory');
-    }
-    const manifest = this._readAndValidate(resolved);
-    const dest = this.pluginPath(manifest.id);
-    if (fs.existsSync(dest)) rmrf(dest);
-    copyDir(resolved, dest);
-    this._upsertDb(manifest, {
-      source_type: 'local',
-      source_url: resolved,
-      enabled: enable ? 1 : 0,
-    });
-    if (enable) {
-      await this.enable(manifest.id);
-    }
-    return this.get(manifest.id);
-  }
-
-  async installFromGithub(repoUrl, { ref = 'main', enable = true } = {}) {
-    const parsed = parseGithubRepo(repoUrl);
-    if (!parsed) throw new Error('Invalid GitHub repository URL');
-    const archiveUrl = `https://github.com/${parsed.owner}/${parsed.repo}/archive/refs/heads/${ref}.tar.gz`;
-    this.logger.info(`Downloading plugin from ${archiveUrl}`);
-
-    let res = await fetch(archiveUrl, {
-      headers: { 'User-Agent': 'plex-toolkit' },
-      redirect: 'follow',
-    });
-    if (!res.ok && ref === 'main') {
-      const masterUrl = `https://github.com/${parsed.owner}/${parsed.repo}/archive/refs/heads/master.tar.gz`;
-      res = await fetch(masterUrl, {
-        headers: { 'User-Agent': 'plex-toolkit' },
-        redirect: 'follow',
-      });
-    }
-    if (!res.ok) {
-      throw new Error(`Failed to download plugin archive: HTTP ${res.status}`);
-    }
-    const buffer = Buffer.from(await res.arrayBuffer());
-    const tmp = path.join(this.pluginsDir, `.tmp-${Date.now()}`);
-    fs.mkdirSync(tmp, { recursive: true });
-    try {
-      await extractTarGz(buffer, tmp);
-      const manifest = this._readAndValidate(tmp);
-      const dest = this.pluginPath(manifest.id);
-      if (this.runtime.isActive(manifest.id)) {
-        await this.runtime.deactivate(manifest.id);
-      }
-      if (fs.existsSync(dest)) rmrf(dest);
-      fs.renameSync(tmp, dest);
-      this._upsertDb(manifest, {
-        source_type: 'github',
-        source_url: `https://github.com/${parsed.owner}/${parsed.repo}`,
-        enabled: enable ? 1 : 0,
-      });
-      if (enable) {
-        await this.enable(manifest.id);
-      }
-      return this.get(manifest.id);
-    } catch (err) {
-      rmrf(tmp);
-      throw err;
-    }
-  }
-
-  async update(id) {
-    const row = dbGet(this.db, id);
-    if (!row) throw new Error('Plugin not found');
-    const wasEnabled = Boolean(row.enabled);
-    if (row.source_type === 'github' && row.source_url) {
-      await this.installFromGithub(row.source_url, { enable: wasEnabled });
-    } else if (row.source_type === 'local' && row.source_url) {
-      await this.installFromLocal(row.source_url, { enable: wasEnabled });
-    } else {
-      throw new Error('Cannot update plugin without a known source');
-    }
-    return this.get(id);
-  }
-
   async enable(id) {
     const row = dbGet(this.db, id);
     if (!row) throw new Error('Plugin not found');
@@ -547,16 +396,4 @@ export class PluginManager {
 
 function dbGet(db, id) {
   return db.prepare('SELECT * FROM plugins WHERE id = ?').get(id);
-}
-
-export function parseGithubRepo(input) {
-  if (!input || typeof input !== 'string') return null;
-  const trimmed = input.trim().replace(/\.git$/, '');
-  const m = trimmed.match(
-    /^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/]+)\/([^/#?]+)(?:\/.*)?$/i,
-  );
-  if (m) return { owner: m[1], repo: m[2] };
-  const short = trimmed.match(/^([^/\s]+)\/([^/\s]+)$/);
-  if (short) return { owner: short[1], repo: short[2] };
-  return null;
 }

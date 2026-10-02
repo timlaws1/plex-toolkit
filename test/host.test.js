@@ -1,10 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  validateManifest,
-  isSafeArchivePath,
-} from '../src/plugins/manifest.js';
-import { parseGithubRepo } from '../src/plugins/manager.js';
+import { validateManifest } from '../src/plugins/manifest.js';
 import {
   ensureSecretKey,
   createSecrets,
@@ -51,22 +47,6 @@ test('validateManifest rejects bad apiVersion and path escape', () => {
     permissions: [],
   });
   assert.equal(badEntry.ok, false);
-});
-
-test('isSafeArchivePath rejects traversal', () => {
-  assert.equal(isSafeArchivePath('plugin.js'), true);
-  assert.equal(isSafeArchivePath('../secret'), false);
-  assert.equal(isSafeArchivePath('/etc/passwd'), false);
-  assert.equal(isSafeArchivePath('C:\\Windows\\system32'), false);
-});
-
-test('parseGithubRepo accepts URL and short form', () => {
-  assert.deepEqual(parseGithubRepo('https://github.com/acme/plex-toolkit-netflix-rewatch'), {
-    owner: 'acme',
-    repo: 'plex-toolkit-netflix-rewatch',
-  });
-  assert.deepEqual(parseGithubRepo('acme/foo'), { owner: 'acme', repo: 'foo' });
-  assert.equal(parseGithubRepo('not a repo'), null);
 });
 
 test('secrets encrypt and decrypt round-trip', () => {

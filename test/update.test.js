@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  imageRefFromInspect,
+  pinnedImageRef,
   revisionsDiffer,
   shortRevision,
   splitImageRef,
+  UPDATE_IMAGE_LABEL,
 } from '../src/update/version.js';
 import { replacementSpec } from '../src/update/docker.js';
 import { refreshUpdateStatus } from '../src/update/status.js';
@@ -51,6 +54,35 @@ test('replacementSpec drops the container-id hostname and live IP', () => {
   assert.deepEqual(spec.NetworkingConfig.EndpointsConfig.bridge, {
     Aliases: ['plex-toolkit'],
   });
+});
+
+test('an update runs the pulled digest and keeps following the tag', () => {
+  const repo = 'ghcr.io/timlaws1/plex-toolkit';
+  const digest = `${repo}@sha256:${'a'.repeat(64)}`;
+  assert.equal(
+    pinnedImageRef(
+      { Id: `sha256:${'b'.repeat(64)}`, RepoDigests: [`other/repo@sha256:${'c'.repeat(64)}`, digest] },
+      repo,
+    ),
+    digest,
+  );
+  assert.equal(pinnedImageRef({ Id: `sha256:${'b'.repeat(64)}`, RepoDigests: [] }, repo), `sha256:${'b'.repeat(64)}`);
+  assert.equal(pinnedImageRef(null, repo), null);
+
+  const spec = replacementSpec(
+    { Id: 'abc', Config: { Image: `${repo}:latest`, Labels: { app: 'plex-toolkit' } } },
+    digest,
+    { labels: { [UPDATE_IMAGE_LABEL]: `${repo}:latest` } },
+  );
+  assert.equal(spec.Image, digest);
+  assert.deepEqual(spec.Labels, { app: 'plex-toolkit', [UPDATE_IMAGE_LABEL]: `${repo}:latest` });
+
+  assert.equal(imageRefFromInspect({ Config: { Image: `${repo}:1.2` } }), `${repo}:1.2`);
+  assert.equal(
+    imageRefFromInspect({ Config: { Image: digest, Labels: { [UPDATE_IMAGE_LABEL]: `${repo}:latest` } } }),
+    `${repo}:latest`,
+  );
+  assert.equal(imageRefFromInspect({ Config: { Image: digest, Labels: { [UPDATE_IMAGE_LABEL]: digest } } }), `${repo}:latest`);
 });
 
 test('refreshUpdateStatus marks a newer GitHub commit', async () => {

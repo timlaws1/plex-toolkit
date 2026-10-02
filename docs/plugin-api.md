@@ -1,6 +1,8 @@
 # Plex Toolkit Tool API (v1)
 
-Bundled tools live under `tools/` in the image. The Tools page catalog lists them; Install copies one into `data/plugins` (disabled until enabled). On every boot the host refreshes code only for tools already installed from that catalog.
+Bundled tools live under `tools/` in the image. The Tools page catalog lists them; Install copies one into `data/plugins` (disabled until enabled). On every boot the host refreshes code only for tools already installed from that catalog, and removes anything under `data/plugins` that is not in it. Only image catalog tools are ever loaded: there is no install from a URL, a GitHub repository, or an arbitrary local path.
+
+The runtime is not a sandbox. Tools run in the toolkit's own Node.js process via `import()`. The permissions below gate the `ctx` API only; a tool module could still import `node:fs` or `node:child_process` directly. That is why loading is limited to code shipped in the image.
 
 ## Package layout
 
@@ -82,7 +84,7 @@ export async function handleRequest(ctx, req) {
 }
 ```
 
-`handleRequest` may return `{ title, body }`, `{ redirect, message, flash }`, `{ file, contentType, size }` (authenticated Range streaming), `{ status: 404, body }`, or throw.
+`handleRequest` may return `{ title, body }`, `{ redirect, message, flash }`, `{ file, contentType }` (authenticated Range streaming; the size is read from disk and the path must be under `MEDIA_ROOTS`), `{ status: 404, body }`, or throw.
 
 ## Context (`ctx`)
 
@@ -120,7 +122,7 @@ The host passes a facade only. Tools do not receive the Plex token, filesystem a
 - `ctx.plex.createPlaylist({ title, ratingKeys })` — video playlist (`plex.collections`)
 - `ctx.plex.addPlaylistItems` / `removePlaylistItem` / `getPlaylistItems` (`plex.collections`)
 - `ctx.plex.searchDiscover(query, { limit })` — title search (`plex.discover`)
-- `ctx.plex.getDiscoverMetadata(ratingKeyOrPath)` — Discover metadata with cast (`plex.discover`)
+- `ctx.plex.getDiscoverMetadata(ratingKeyOrPath)` — Discover metadata with cast (`plex.discover`). Accepts an alphanumeric rating key or a `/library/metadata/<key>` path; anything else throws before a request is made. Discover requests only go to `discover.provider.plex.tv` and `metadata.provider.plex.tv`
 - `ctx.plex.getDvrs()` — configured DVRs (`plex.dvr`)
 - `ctx.plex.getDvrChannels()` — DVR channel titles for regional preference (`plex.dvr`)
 - `ctx.plex.getSubscriptions()` — media/DVR subscriptions (`plex.dvr`)
@@ -133,19 +135,39 @@ The host passes a facade only. Tools do not receive the Plex token, filesystem a
 - `ctx.plex.setPreference(id, value)` — set a PMS preference (`plex.prefs`)
 - `ctx.plex.isConfigured()` — whether a server URL and token are set
 
-### Filesystem (`fs.read`)
+### Filesystem (`fs.read` / `fs.write`)
 
-Scoped to `MEDIA_ROOTS` when that env var is set (semicolon-separated absolute paths). When unset, paths are unrestricted (local development).
+Scoped to `MEDIA_ROOTS` when that env var is set (semicolon-separated absolute paths). When unset, paths are unrestricted (local development) and the toolkit logs a warning at startup. Docker compose sets it to `/prerolls`.
+
+A path is allowed only when both checks pass:
+
+- Lexically, the resolved path is a root or sits under one.
+- The real path, after following every symbolic link, is a root or sits under one. For a path that does not exist yet, the nearest existing parent is resolved instead.
+
+A symbolic link as the last part of the path is refused, unless it is one of the roots itself. `ctx.fs.writeFile` writes a temporary file in the same folder and renames it over the destination, so it never writes through a link. A file returned from `handleRequest` as `{ file }` goes through the same check before it is streamed; a path outside the roots gets `403`.
 
 - `ctx.fs.listVideos(dir)` — recursive video file listing; returns `{ entries, error }` where `entries` are `{ relativePath, filename, sizeBytes, mtimeMs, durationMs? }` and `error` is `null` or `{ code, message, path }` when the path is missing, not a directory, or unreadable
 - `ctx.fs.stat(absPath)`
 - `ctx.fs.exists(absPath)`
 - `ctx.fs.createReadStream(absPath, opts)`
 - `ctx.fs.readMp4DurationMs(absPath)`
+- `ctx.fs.writeFile(absPath, data)` (`fs.write`)
+- `ctx.fs.mkdir(absPath)` — recursive (`fs.write`)
+- `ctx.fs.unlink(absPath)` (`fs.write`)
 
-### SQL (`sql.preroll` / `sql.recommendations`)
+### SQL (`sql.preroll` / `sql.recommendations` / `sql.trailers`)
 
-Prepared statements against the host SQLite database. Each SQL permission allowlists its own tables. `sql.preroll` covers `preroll_buckets`, `preroll_items`, `preroll_schedules`, `preroll_steps`, `preroll_history`, `preroll_state`. `sql.recommendations` covers the `rec_*` schedule, Letterboxd, and cache tables. A tool cannot read another tool's tables.
+Prepared statements against the host SQLite database. Each SQL permission allowlists its own tables. `sql.preroll` covers `preroll_buckets`, `preroll_items`, `preroll_schedules`, `preroll_steps`, `preroll_history`, `preroll_state`. `sql.recommendations` covers the `rec_*` schedule, Letterboxd, and cache tables. `sql.trailers` covers `trailer_downloads`. A tool cannot read another tool's tables or the host's own tables (`plex_servers`, `sessions`, `plugin_settings`, and so on).
+
+Every statement is tokenized and walked before SQLite prepares it:
+
+- One statement per call. A second statement after a `;` is rejected, for `exec` as well as `prepare`.
+- The statement must start with `SELECT`, `INSERT`, `REPLACE`, `UPDATE`, `DELETE`, `WITH`, `VALUES`, `CREATE TABLE`, `CREATE [UNIQUE] INDEX`, `DROP TABLE`, or `ALTER TABLE`. `ATTACH`, `DETACH`, `PRAGMA`, `VACUUM`, `REINDEX`, `ANALYZE`, and `load_extension` are rejected anywhere in the statement.
+- Every table named in `FROM` (including comma joins and parenthesized joins), `JOIN`, `INTO`, `UPDATE`, `TABLE`, `REFERENCES`, `CREATE INDEX ... ON`, and subqueries must be on the tool's allowlist. Quoted names and `main.` prefixes are checked the same way; any other schema is rejected. Table-valued functions such as `pragma_table_info` count as tables, so they are rejected too.
+- A CTE name is allowed only if no table, index, or view of that name exists.
+- A statement must name at least one allowlisted table.
+
+`prepare` returns a wrapped statement (`run`, `get`, `all`, `iterate`, `columns`, `pluck`, `expand`, `raw`, `safeIntegers`, `bind`). `exec` returns the scoped handle. `transaction(fn)` returns a wrapped transaction function with `deferred`, `immediate`, and `exclusive`. None of them expose the host database connection.
 
 - `ctx.sql.prepare(sql)`
 - `ctx.sql.exec(sql)`
@@ -165,7 +187,7 @@ Events:
 - `movie.watched`
 - `library.updated`
 
-Playback payloads include `accountId`, `ratingKey`, progress fields, and `wasWatchedAtStart` (whether `viewCount > 0` when the session began). Events for other Plex accounts are filtered out when a configured account id is known.
+Playback payloads include `source` (`websocket` or `webhook`), `accountId`, `ratingKey`, progress fields, and `wasWatchedAtStart` (whether `viewCount > 0` when the session began). Events for other Plex accounts are filtered out when a configured account id is known. Webhook events must carry the configured account id; a webhook event with no account id is never delivered.
 
 ### Storage (`storage`)
 

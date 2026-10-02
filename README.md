@@ -11,6 +11,9 @@ These ship in the image. Open **Tools** and click **Install** on the ones you wa
 - **Scheduled Recommendations** — film picks based on your Letterboxd ratings, added to a Plex collection or playlist, or emailed to you
 - **Netflix Rewatch** — Netflix-style Continue Watching when you rewatch episodes. Marks the proceeding episodes as unwatched so will appear in the Plex Continue Watching strip 
 - **Letterboxd Watchlist Sync** — copy a public Letterboxd watchlist into your Plex watchlist
+- **Letterboxd Diary** — mark the films in your Letterboxd export as watched in Plex, after a preview, and optionally keep up with new diary entries from your RSS feed. Every change can be undone
+- **Watchlist Prune** — take films off your Plex watchlist once you watch them in Plex, and optionally after they have been there a set number of days. Put any film back with one click
+- **Letterboxd Lists** — turn public Letterboxd lists into Plex collections of the films you own, with a report of the ones you are missing. Can add missing films to your watchlist and email you when the missing set changes
 
 
 Click the pin next to an installed tool to add it to the sidebar under **Tools**.
@@ -57,7 +60,7 @@ Open `http://your-server:8787` (use your `PORT` if you changed it) and sign in w
 
 ## Updating
 
-**Home** shows the running version. When a newer build is available, click **Update** and the toolkit pulls the new image and restarts itself. This needs `DOCKER_GID` set in `.env`.
+**Home** shows the running version. When a newer build is available, click **Update** and the toolkit pulls the new image and restarts itself. This needs `DOCKER_GID` set in `.env`. The restarted container runs the exact image digest that was pulled, and the tag it follows for the next update (for example `:latest`) is kept in the `io.plex-toolkit.update-image` container label.
 
 Without it, update from the folder with `docker-compose.yml`:
 
@@ -78,6 +81,8 @@ Your settings, Plex token, and database live in `./data` and are kept. Installed
 Your Plex token is encrypted at rest under `./data`.
 
 Once connected, the **Plex** screen shows your webhook URL with a copy button. Adding it in Plex (Settings → Webhooks) is optional: tools already get playback events over the Plex websocket, and webhooks add scrobble events when you have Plex Pass. If the URL shows `localhost`, set `PUBLIC_URL` to an address your Plex server can reach.
+
+The webhook URL ends in a secret token (`/webhooks/plex/<token>`). Treat it like a password. If you added the older `/webhooks/plex` address without a token, replace it in Plex: the old address no longer does anything. Webhook events are only passed to tools when they come from the Plex account you connected.
 
 ## Mail
 
@@ -122,11 +127,12 @@ If a bucket shows a permission error, the folder is owned by a different user th
 
 ## Security
 
-- Use a strong, unique `ADMIN_PASSWORD`.
+- Use a strong, unique `ADMIN_PASSWORD`. After 5 wrong passwords from one address, sign-in is refused from that address for 15 minutes. Failed attempts are logged without the password. The address is the one that connected to the toolkit, not a forwarded header, so behind a reverse proxy every visitor shares the proxy's address and five wrong guesses lock everyone out for 15 minutes.
+- The session cookie is marked `Secure` when `PUBLIC_URL` starts with `https://`. Behind a TLS reverse proxy, set `PUBLIC_URL` to the `https://` address.
 - Keep the port on your LAN, or behind a reverse proxy with TLS. Do not expose it to the internet unprotected.
 - Treat `./data` as sensitive: it holds the encryption key, encrypted Plex token, database, and tool settings.
 - The Docker socket mount lets the toolkit control Docker on the host when `DOCKER_GID` is set. If you would rather it had no access at all, delete the `docker.sock` line and the `group_add` block from `docker-compose.yml` and update by hand.
-- `POST /webhooks/plex` has no login, so Plex can call it.
+- The Plex webhook does not use the admin login, so Plex can call it. It requires the secret token in its path (`/webhooks/plex/<token>`) and ignores events for other Plex accounts. The token is generated in `data/config/webhook.token`, or set with `WEBHOOK_TOKEN`.
 - Only tools from the image can be installed. Anything else under `./data/plugins` is removed on start.
 
 ## Environment
@@ -143,6 +149,7 @@ All of these go in `.env`.
 | `PUBLIC_URL` | Address Plex can reach the toolkit on, used for the webhook URL. Default: the address you open the toolkit with |
 | `MEDIA_ROOTS` | Container folders file-reading tools may use, separated by `;`. Default `/prerolls` |
 | `PLEX_CLIENT_ID` | Optional fixed Plex app id. Otherwise generated in `data/config/client.id` |
+| `WEBHOOK_TOKEN` | Optional secret in the Plex webhook URL. Otherwise generated in `data/config/webhook.token`. Changing it means updating the URL in Plex |
 | `SECRET_KEY` | Optional 64-character hex key. Otherwise generated in `data/config/secret.key`. Set it before the first start only: changing it later makes the saved Plex token unreadable |
 | `DATA_DIR` | Data folder when running without Docker. Default `./data` (Docker always uses `/data`) |
 

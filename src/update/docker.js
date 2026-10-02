@@ -157,7 +157,7 @@ export function dataMount(inspect) {
  * Hostname is left unset when Docker assigned the container id, so the
  * replacement gets its own id.
  */
-export function replacementSpec(inspect, image) {
+export function replacementSpec(inspect, image, { labels = {} } = {}) {
   const cfg = inspect.Config || {};
   const host = inspect.HostConfig || {};
   const id = String(inspect.Id || '');
@@ -199,7 +199,7 @@ export function replacementSpec(inspect, image) {
     Entrypoint: cfg.Entrypoint,
     Image: image,
     WorkingDir: cfg.WorkingDir,
-    Labels: cfg.Labels,
+    Labels: Object.keys(labels).length ? { ...(cfg.Labels || {}), ...labels } : cfg.Labels,
     ExposedPorts: cfg.ExposedPorts,
     HostConfig: hostConfig,
     NetworkingConfig: { EndpointsConfig: networks },

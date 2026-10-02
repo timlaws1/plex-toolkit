@@ -1,12 +1,18 @@
 import WebSocket from 'ws';
-import { SessionTracker } from './sessions.js';
+import { SessionTracker, webhookAccountAllowed } from './sessions.js';
+
+const WEBHOOK_DEDUPE_MS = 2000;
+const WEBHOOK_DEDUPE_MAX = 500;
 
 export class PlexEventMonitor {
-  constructor({ plex, bus, logger }) {
+  constructor({ plex, bus, logger, getConfiguredAccountId = () => null }) {
     this.plex = plex;
     this.bus = bus;
     this.logger = logger;
+    this.getConfiguredAccountId = getConfiguredAccountId;
     this.tracker = new SessionTracker({ plex, bus, logger });
+    /** @type {Map<string, number>} */
+    this.recentWebhooks = new Map();
     this.ws = null;
     this.reconnectAttempt = 0;
     this.reconnectTimer = null;
@@ -45,12 +51,22 @@ export class PlexEventMonitor {
       payload?.metadata ||
       payload?.NotificationContainer?.TimelineEntry?.[0] ||
       null;
+    const rawAccountId =
+      payload?.Account?.id ?? payload?.account?.id ?? metadata?.accountID ?? null;
     const accountId =
-      payload?.Account?.id ||
-      payload?.account?.id ||
-      metadata?.accountID ||
-      null;
+      rawAccountId != null && String(rawAccountId) !== '' ? String(rawAccountId) : null;
 
+    if (!webhookAccountAllowed(accountId, this.getConfiguredAccountId())) {
+      this.logger.debug(
+        `Ignoring webhook ${event || 'event'}: account ${accountId ?? 'missing'} is not the configured account`,
+      );
+      return false;
+    }
+    if (this._isRepeatWebhook(event, accountId, payload, metadata)) {
+      return false;
+    }
+
+    const source = 'webhook';
     if (event === 'media.play' || event === 'media.resume') {
       this.tracker.onPlay({
         ratingKey: metadata?.ratingKey,
@@ -60,8 +76,9 @@ export class PlexEventMonitor {
         duration: metadata?.duration,
         type: metadata?.type,
         metadata,
+        source,
       });
-      return;
+      return true;
     }
     if (event === 'media.pause' || event === 'media.progress') {
       this.tracker.onProgress({
@@ -72,8 +89,9 @@ export class PlexEventMonitor {
         duration: metadata?.duration,
         type: metadata?.type,
         metadata,
+        source,
       });
-      return;
+      return true;
     }
     if (event === 'media.stop') {
       this.tracker.onStop({
@@ -84,8 +102,9 @@ export class PlexEventMonitor {
         duration: metadata?.duration,
         type: metadata?.type,
         metadata,
+        source,
       });
-      return;
+      return true;
     }
     if (event === 'media.scrobble') {
       this.tracker.onScrobble({
@@ -93,15 +112,38 @@ export class PlexEventMonitor {
         metadata,
         type: metadata?.type,
         ratingKey: metadata?.ratingKey,
+        source,
       });
-      return;
+      return true;
     }
     if (event === 'library.new' || event === 'library.on.deck') {
       this.tracker.onLibraryUpdate({
         sectionId: metadata?.librarySectionID,
         event,
+        source,
       });
+      return true;
     }
+    return false;
+  }
+
+  _isRepeatWebhook(event, accountId, payload, metadata) {
+    const key = [
+      event || '',
+      accountId || '',
+      payload?.Player?.uuid || '',
+      metadata?.ratingKey || '',
+    ].join(':');
+    const now = Date.now();
+    const last = this.recentWebhooks.get(key);
+    if (last != null && now - last < WEBHOOK_DEDUPE_MS) return true;
+    this.recentWebhooks.set(key, now);
+    if (this.recentWebhooks.size > WEBHOOK_DEDUPE_MAX) {
+      for (const [k, at] of this.recentWebhooks) {
+        if (now - at >= WEBHOOK_DEDUPE_MS) this.recentWebhooks.delete(k);
+      }
+    }
+    return false;
   }
 
   _connect() {

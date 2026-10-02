@@ -1,5 +1,15 @@
 const PROGRESS_THROTTLE_MS = 30_000;
 
+/**
+ * Webhook events have no transport-level identity, so they must name the configured
+ * account. They never inherit the websocket "0" account exception.
+ */
+export function webhookAccountAllowed(accountId, configuredAccountId) {
+  if (accountId == null || String(accountId) === '') return false;
+  if (configuredAccountId == null || configuredAccountId === '') return true;
+  return String(accountId) === String(configuredAccountId);
+}
+
 export class SessionTracker {
   constructor({ plex, bus, logger }) {
     this.plex = plex;
@@ -60,8 +70,11 @@ export class SessionTracker {
   async onScrobble(raw) {
     const meta = raw.metadata || {};
     const type = meta.type || raw.type;
+    const accountId = String(raw.accountId || meta.accountID || '');
+    if (raw.source === 'webhook' && !accountId) return;
     const payload = {
-      accountId: String(raw.accountId || meta.accountID || ''),
+      source: raw.source || 'websocket',
+      accountId,
       ratingKey: String(meta.ratingKey || raw.ratingKey || ''),
       type,
       title: meta.title,
@@ -93,9 +106,9 @@ export class SessionTracker {
     const ratingKey = String(raw.ratingKey || raw.metadata?.ratingKey || '');
     if (!ratingKey) return null;
 
-    const accountId = String(
-      raw.accountId || raw.Account?.id || raw.metadata?.accountID || '0',
-    );
+    const rawAccountId = raw.accountId || raw.Account?.id || raw.metadata?.accountID || '';
+    if (raw.source === 'webhook' && !rawAccountId) return null;
+    const accountId = String(rawAccountId || '0');
     const sessionKey = String(raw.sessionKey || ratingKey);
     const key = this.sessionKey(sessionKey, ratingKey, accountId);
 
@@ -124,6 +137,7 @@ export class SessionTracker {
 
     return {
       key,
+      source: raw.source || 'websocket',
       sessionKey,
       accountId,
       ratingKey,
@@ -160,6 +174,7 @@ export class SessionTracker {
 
   _payload(session) {
     return {
+      source: session.source,
       accountId: session.accountId,
       sessionKey: session.sessionKey,
       ratingKey: session.ratingKey,
